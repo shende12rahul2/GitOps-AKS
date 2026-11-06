@@ -1,0 +1,5 @@
+# Infrastructure changes need a platform owner review. Production roots need two.
+*                         @REPLACE_ORG/platform-team
+/environments/prod/       @REPLACE_ORG/platform-team @REPLACE_ORG/platform-leads
+/bootstrap/               @REPLACE_ORG/platform-leads
+/.github/workflows/       @REPLACE_ORG/platform-leads

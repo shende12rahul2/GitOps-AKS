@@ -1,0 +1,8 @@
+# Deployment approvals. Merging a pull request here is a deployment.
+*                              @REPLACE_ORG/platform-team
+/environments/dev/apps/        @REPLACE_ORG/app-developers @REPLACE_ORG/platform-team
+/environments/test/            @REPLACE_ORG/qa-leads @REPLACE_ORG/platform-team
+/environments/prod/            @REPLACE_ORG/platform-leads
+/helm/                         @REPLACE_ORG/app-leads @REPLACE_ORG/platform-team
+/argocd/                       @REPLACE_ORG/platform-leads
+/kubernetes/                   @REPLACE_ORG/platform-leads

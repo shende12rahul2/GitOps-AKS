@@ -1,0 +1,4 @@
+subscription_id                 = "00000000-0000-0000-0000-000000000000"
+github_organization             = "my-github-org"
+platform_admins_group_object_id = "00000000-0000-0000-0000-000000000000"
+# allowed_ip_ranges             = ["203.0.113.10/32"]

@@ -1,0 +1,38 @@
+# apps: default deny; services declare their allowed callers in their charts.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: apps
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress
+  namespace: apps
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    {{- include "np.dns" . | nindent 4 }}
+    # Service-to-service calls (the callee's ingress policy decides).
+    - to:
+        - podSelector: {}
+      ports:
+        - { port: 8000, protocol: TCP }
+    # PostgreSQL Flexible Server (delegated subnet).
+    - to:
+        - ipBlock: { cidr: {{ .Values.global.network.postgresSubnetCidr }} }
+      ports:
+        - { port: 5432, protocol: TCP }
+    # Private endpoints: Managed Redis (10000), Key Vault (443).
+    - to:
+        - ipBlock: { cidr: {{ .Values.global.network.privateEndpointSubnetCidr }} }
+      ports:
+        - { port: 10000, protocol: TCP }
+        - { port: 443, protocol: TCP }
+    # Microsoft Entra ID (workload identity token exchange).
+    {{- include "np.internet443" . | nindent 4 }}

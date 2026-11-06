@@ -1,0 +1,10 @@
+apiVersion: v2
+name: user-service
+description: "Users REST API backed by PostgreSQL (users_db)"
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.30.0-0"
+keywords: [aks-poc, microservice]
+annotations:
+  category: application

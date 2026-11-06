@@ -1,0 +1,15 @@
+# Airflow overrides for prod.
+apiServer:
+  replicas: 2
+workers:
+  replicas: 2
+dags:
+  gitSync:
+    # Git-Sync follows the protected branch; only validated, approved DAGs reach Airflow.
+    # Roll back a bad DAG with a revert PR, or pin a known-good commit SHA here.
+    ref: main
+scheduler:
+  replicas: 2
+config:
+  core:
+    parallelism: 32

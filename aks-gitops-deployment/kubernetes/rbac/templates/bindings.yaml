@@ -1,0 +1,52 @@
+{{- $g := .Values.global.entraGroups }}
+{{- range $ns := .Values.workloadNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: log-readers
+  namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aks-poc:log-reader
+subjects:
+  # Entra group object IDs (AKS maps group claims to Kubernetes groups).
+  {{- range $persona := list "developers" "qa" "devops" }}
+  {{- with (index $g $persona) }}
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workload-operators
+  namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aks-poc:workload-operator
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ required "global.entraGroups.devops is required" $g.devops | quote }}
+{{- if $.Values.developerPortForward }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-port-forward
+  namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aks-poc:port-forward
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ required "global.entraGroups.developers is required" $g.developers | quote }}
+{{- end }}
+{{- end }}

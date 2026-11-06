@@ -1,0 +1,47 @@
+# Argo CD (argo-cd chart) values for dev: URL, Entra ID SSO, group mappings.
+global:
+  domain: argocd.poc.example.com
+server:
+  serviceAccount:
+    annotations:
+      # Entra app registration "argocd-akspoc-dev" (bootstrap/entra/create-app-registrations.sh);
+      # its federated credential trusts system:serviceaccount:argocd:argocd-server.
+      azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000401
+configs:
+  cm:
+    url: https://argocd.poc.example.com
+    oidc.config: |
+      name: Microsoft Entra ID
+      issuer: https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0
+      clientID: 00000000-0000-0000-0000-000000000401
+      azure:
+        useWorkloadIdentity: true
+      requestedIDTokenClaims:
+        groups:
+          essential: true
+          value: ApplicationGroup
+      requestedScopes: [openid, profile, email]
+  rbac:
+    policy.csv: |
+      p, role:platform-admin, *, *, */*, allow
+      p, role:devops, applications, get, */*, allow
+      p, role:devops, applications, sync, */*, allow
+      p, role:devops, applications, action/*, */*, allow
+      p, role:devops, applications, override, */*, allow
+      p, role:devops, applications, delete, */*, deny
+      p, role:devops, logs, get, */*, allow
+      p, role:devops, projects, get, *, allow
+      p, role:devops, repositories, get, *, allow
+      p, role:devops, clusters, get, *, allow
+      p, role:qa, applications, get, apps/*, allow
+      p, role:qa, applications, get, airflow/*, allow
+      p, role:qa, logs, get, apps/*, allow
+      p, role:developer, applications, get, apps/*, allow
+      p, role:developer, applications, get, airflow/*, allow
+      p, role:developer, logs, get, apps/*, allow
+      p, role:developer, applications, sync, apps/*, allow
+      g, 00000000-0000-0000-0000-000000000001, role:platform-admin
+      g, 00000000-0000-0000-0000-000000000002, role:devops
+      g, 00000000-0000-0000-0000-000000000003, role:developer
+      g, 00000000-0000-0000-0000-000000000004, role:qa
+      g, 00000000-0000-0000-0000-000000000005, role:readonly

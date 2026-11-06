@@ -1,0 +1,55 @@
+# One Application per microservice, all with the same shape. Adding a service =
+# adding it to `services` (environments/<env>/argocd.yaml) + its chart + values.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: microservices
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          {{- range .Values.services }}
+          - name: {{ . }}
+          {{- end }}
+  # Deleting the ApplicationSet must never delete running workloads.
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  template:
+    metadata:
+      name: '{{`{{ .name }}`}}'
+      labels:
+        app.kubernetes.io/part-of: aks-poc
+        tier: apps
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: apps
+      revisionHistoryLimit: 10
+      source:
+        repoURL: {{ .Values.repoURL }}
+        targetRevision: {{ .Values.targetRevision }}
+        path: '{{`helm/{{ .name }}`}}'
+        helm:
+          releaseName: '{{`{{ .name }}`}}'
+          valueFiles:
+            - ../../environments/{{ .Values.environment }}/infrastructure.yaml
+            - '{{`../../environments/`}}{{ .Values.environment }}{{`/apps/{{ .name }}.yaml`}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: apps
+      syncPolicy:
+        {{- if .Values.sync.automated }}
+        automated:
+          prune: {{ .Values.sync.prune }}
+          selfHeal: {{ .Values.sync.selfHeal }}
+        {{- end }}
+        syncOptions:
+          - CreateNamespace=false
+          - PruneLast=true
+          - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 3
+          backoff: { duration: 15s, factor: 2, maxDuration: 3m }

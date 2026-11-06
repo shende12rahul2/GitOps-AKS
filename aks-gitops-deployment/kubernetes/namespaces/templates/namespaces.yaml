@@ -1,0 +1,45 @@
+{{- range $name, $ns := .Values.namespaces }}
+{{- if or (not $ns.onlyInMode) (eq $ns.onlyInMode $.Values.global.ingress.mode) }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/part-of: aks-poc
+    environment: {{ $.Values.global.environment }}
+    pod-security.kubernetes.io/enforce: {{ $ns.podSecurity.enforce }}
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: {{ $ns.podSecurity.audit }}
+    pod-security.kubernetes.io/warn: {{ $ns.podSecurity.warn }}
+  annotations:
+    # Never prune namespaces automatically (they contain PVCs and secrets).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+{{- if $ns.quota }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ $name }}-quota
+  namespace: {{ $name }}
+spec:
+  hard:
+    {{- toYaml $ns.quota | nindent 4 }}
+{{- end }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ $name }}-defaults
+  namespace: {{ $name }}
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        {{- toYaml $.Values.limitRange.defaultRequest | nindent 8 }}
+      default:
+        {{- toYaml $.Values.limitRange.default | nindent 8 }}
+      max:
+        {{- toYaml $.Values.limitRange.max | nindent 8 }}
+{{- end }}
+{{- end }}

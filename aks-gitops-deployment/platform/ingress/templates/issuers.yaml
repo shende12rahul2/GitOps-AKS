@@ -1,0 +1,55 @@
+# Private PKI for the POC: self-signed root -> CA issuer. Replace with the
+# letsencrypt issuer (public zone) or an enterprise CA for trusted certificates.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: poc-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: {{ printf "AKS POC Root CA (%s)" .Values.global.dnsZone }}
+  secretName: poc-root-ca
+  duration: 87600h # 10 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: poc-ca
+spec:
+  ca:
+    secretName: poc-root-ca
+{{- if .Values.tls.letsencrypt.email }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    email: {{ .Values.tls.letsencrypt.email }}
+    server: {{ .Values.tls.letsencrypt.server }}
+    privateKeySecretRef:
+      name: letsencrypt-account
+    solvers:
+      - dns01:
+          azureDNS:
+            subscriptionID: {{ .Values.tls.letsencrypt.azureDNS.subscriptionID | required "azureDNS.subscriptionID" }}
+            resourceGroupName: {{ .Values.tls.letsencrypt.azureDNS.resourceGroupName | required "azureDNS.resourceGroupName" }}
+            hostedZoneName: {{ .Values.tls.letsencrypt.azureDNS.hostedZoneName | required "azureDNS.hostedZoneName" }}
+            environment: AzurePublicCloud
+            managedIdentity:
+              clientID: {{ .Values.tls.letsencrypt.azureDNS.managedIdentityClientID | required "azureDNS.managedIdentityClientID" }}
+{{- end }}

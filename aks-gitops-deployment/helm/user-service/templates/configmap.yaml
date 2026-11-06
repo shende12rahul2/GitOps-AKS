@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "svc.fullname" . }}
+  labels:
+    {{- include "svc.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+data:
+  SERVICE_NAME: {{ include "svc.name" . | quote }}
+  ENVIRONMENT: {{ .Values.global.environment | default "local" | quote }}
+  LOG_LEVEL: {{ .Values.logLevel | quote }}
+  APP_VERSION: {{ .Values.image.tag | default "unknown" | quote }}
+  HSTS_ENABLED: {{ .Values.hstsEnabled | quote }}
+  DB_ENABLED: {{ .Values.database.enabled | quote }}
+  {{- if .Values.database.enabled }}
+  DB_HOST: {{ include "svc.dbHost" . | required "database.host or global.postgres.host is required" | quote }}
+  DB_PORT: {{ .Values.database.port | quote }}
+  DB_NAME: {{ required "database.name is required" .Values.database.name | quote }}
+  DB_USER: {{ include "svc.dbUser" . | required "database.user or global.workloadIdentities.<service>.name is required" | quote }}
+  DB_AUTH_MODE: {{ .Values.database.authMode | quote }}
+  DB_SSLMODE: {{ .Values.database.sslmode | quote }}
+  DB_POOL_SIZE: {{ .Values.database.poolSize | quote }}
+  DB_MAX_OVERFLOW: {{ .Values.database.maxOverflow | quote }}
+  {{- end }}
+  REDIS_ENABLED: {{ .Values.redis.enabled | quote }}
+  {{- if .Values.redis.enabled }}
+  REDIS_HOST: {{ include "svc.redisHost" . | required "redis.host or global.redis.host is required" | quote }}
+  REDIS_PORT: {{ .Values.redis.port | quote }}
+  REDIS_SSL: "true"
+  REDIS_AUTH_MODE: {{ .Values.redis.authMode | quote }}
+  REDIS_KEY_PREFIX: {{ .Values.redis.keyPrefix | default (printf "app:%s" (include "svc.name" .)) | quote }}
+  {{- end }}
+  SHARED_STORAGE_ENABLED: {{ .Values.sharedStorage.enabled | quote }}
+  SHARED_MOUNT_PATH: {{ .Values.sharedStorage.mountPath | quote }}
+  INTERNAL_API_KEYS_FILE: {{ printf "%s/internal-api-key" .Values.keyVault.mountPath | quote }}
+  {{- range $k, $v := .Values.config }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}

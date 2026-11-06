@@ -1,0 +1,11 @@
+# Namespaces whose pods are scraped when annotated prometheus.io/scrape: "true".
+podAnnotationNamespaces: [apps, airflow]
+# Default targets collected by the managed Prometheus add-on (keep the cost low).
+defaultTargets:
+  kubelet: true
+  coredns: false
+  cadvisor: true
+  kubeproxy: false
+  apiserver: false
+  kubestate: true
+  nodeexporter: true

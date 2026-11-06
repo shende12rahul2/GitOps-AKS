@@ -1,0 +1,56 @@
+{{- if and .Values.database.enabled .Values.migrations.enabled }}
+# Versioned SQL migrations run as this service's own PostgreSQL role (workload
+# identity). Argo CD runs it as a Sync hook in wave 0: after the ServiceAccount,
+# ConfigMap and SecretProviderClass (wave -1), before the Deployment (wave 1).
+# A failed migration stops the rollout; the previous ReplicaSet keeps serving.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "svc.fullname" . }}-migrate
+  labels:
+    {{- include "svc.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "svc.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "svc.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "svc.image" . }}
+          command: ["python", "-m", "svc_common.migrate", "--dir", "/app/migrations"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "svc.fullname" . }}
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

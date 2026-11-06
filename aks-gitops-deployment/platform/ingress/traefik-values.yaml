@@ -1,0 +1,50 @@
+# Low-cost alternative to Application Gateway (Terraform ingress_mode = internal):
+# Traefik v3 (chart 42.3.0) behind an internal Azure Standard Load Balancer with
+# a static private IP. Deployed only when global.ingress.mode = internal.
+deployment:
+  replicas: 2
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+  name: traefik
+providers:
+  kubernetesCRD:
+    enabled: true
+    allowCrossNamespace: false
+  kubernetesIngress:
+    enabled: true
+    publishedService:
+      enabled: true
+ports:
+  web:
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    http:
+      tls:
+        enabled: true
+service:
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    # Reserved address in the node subnet (Terraform output ingress_private_ip).
+    service.beta.kubernetes.io/azure-load-balancer-ipv4: "10.10.3.232"
+  spec:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+log:
+  format: json
+accessLog:
+  enabled: true
+  format: json
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+nodeSelector:
+  workload-class: apps

@@ -1,0 +1,76 @@
+# Environment contract: non-secret infrastructure facts for test.
+# GENERATED from Terraform outputs by
+#   aks-infrastructure-iac/scripts/export-gitops-values.sh test > environments/test/infrastructure.yaml
+# Placeholder IDs below are replaced on the first export. No secrets belong here.
+global:
+  environment: test
+  tenantId: 00000000-0000-0000-0000-000000000000
+  keyVaultName: kv-akspoc-test-eus2-c3d4
+  acrLoginServer: acrakspoctesteus2c3d4.azurecr.io
+  dnsZone: poc.example.com
+  ingress:
+    mode: agic
+    privateIp: 10.20.4.10
+    gatewaySubnetCidr: 10.20.4.0/24
+    publicApp: false
+    hosts:
+      app: app.poc.example.com
+      argocd: argocd.poc.example.com
+      airflow: airflow.poc.example.com
+  network:
+    vnetCidr: 10.20.0.0/16
+    nodeSubnetCidr: 10.20.0.0/22
+    privateEndpointSubnetCidr: 10.20.5.0/24
+    postgresSubnetCidr: 10.20.6.0/27
+    podCidr: 192.168.0.0/16
+  workloadIdentities:
+    frontend:
+      name: id-akspoc-test-eus2-frontend
+      clientId: 00000000-0000-0000-0000-000000000100
+      principalId: 00000000-0000-0000-0000-000000000200
+    user-service:
+      name: id-akspoc-test-eus2-user-service
+      clientId: 00000000-0000-0000-0000-000000000101
+      principalId: 00000000-0000-0000-0000-000000000201
+    product-service:
+      name: id-akspoc-test-eus2-product-service
+      clientId: 00000000-0000-0000-0000-000000000102
+      principalId: 00000000-0000-0000-0000-000000000202
+    order-service:
+      name: id-akspoc-test-eus2-order-service
+      clientId: 00000000-0000-0000-0000-000000000103
+      principalId: 00000000-0000-0000-0000-000000000203
+    notification-service:
+      name: id-akspoc-test-eus2-notification-service
+      clientId: 00000000-0000-0000-0000-000000000104
+      principalId: 00000000-0000-0000-0000-000000000204
+    airflow:
+      name: id-akspoc-test-eus2-airflow
+      clientId: 00000000-0000-0000-0000-000000000105
+      principalId: 00000000-0000-0000-0000-000000000205
+    db-bootstrap:
+      name: id-akspoc-test-eus2-db-bootstrap
+      clientId: 00000000-0000-0000-0000-000000000106
+      principalId: 00000000-0000-0000-0000-000000000206
+  postgres:
+    host: psql-akspoc-test-eus2-c3d4.akspoc-test-eus2.private.postgres.database.azure.com
+    port: 5432
+  redis:
+    host: redis-akspoc-test-eus2-c3d4.eastus2.redis.azure.net
+    port: 10000
+  azureFiles:
+    storageAccount: stakspoctesteus2c3d4
+    resourceGroup: rg-akspoc-test-eus2-data
+    kubeletClientId: 00000000-0000-0000-0000-000000000300
+    shares: [shared-files, airflow-logs]
+  entraGroups:
+    platformAdmins: 00000000-0000-0000-0000-000000000001
+    devops: 00000000-0000-0000-0000-000000000002
+    developers: 00000000-0000-0000-0000-000000000003
+    developersName: grp-akspoc-developers
+    qa: 00000000-0000-0000-0000-000000000004
+    qaName: grp-akspoc-qa
+    readers: 00000000-0000-0000-0000-000000000005
+  sso:
+    argocdClientId: 00000000-0000-0000-0000-000000000401
+    airflowClientId: 00000000-0000-0000-0000-000000000402

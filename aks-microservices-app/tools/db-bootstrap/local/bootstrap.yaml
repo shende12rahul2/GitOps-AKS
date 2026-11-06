@@ -1,0 +1,13 @@
+# Local (docker compose) bootstrap. In AKS the principals are Entra roles; see
+# aks-gitops-deployment/platform/database/values.yaml.
+principals:
+  user-service:    { role: user-service, type: local-login }
+  product-service: { role: product-service, type: local-login }
+  order-service:   { role: order-service, type: local-login }
+  qa-group:        { role: qa-group, type: local-login }
+  airflow:         { role: airflow, type: password, password_file: /config/airflow-password, connection_limit: 120 }
+databases:
+  - { name: users_db, owner: user-service, readers: [qa-group] }
+  - { name: products_db, owner: product-service, readers: [qa-group] }
+  - { name: orders_db, owner: order-service, readers: [qa-group] }
+  - { name: airflow_metadata, owner: airflow }

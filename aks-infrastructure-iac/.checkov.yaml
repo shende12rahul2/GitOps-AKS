@@ -1,0 +1,51 @@
+# Checkov configuration. Every skip below was reviewed against an actual finding
+# and is either a false positive or a deliberate, documented POC decision
+# (docs/security.md lists the production follow-ups).
+compact: true
+quiet: true
+framework:
+  - terraform
+skip-path:
+  - .terraform
+  - tests
+  - modules/aks/prometheus-alerts.tf
+skip-check:
+  # --- False positives ---------------------------------------------------------
+  # Private endpoints are created by the private-endpoint sub-module.
+  - CKV2_AZURE_32   # Key Vault private endpoint
+  # PostgreSQL uses private access (VNet integration), the alternative to a private endpoint.
+  - CKV2_AZURE_57
+  # WAF uses Microsoft_DefaultRuleSet 2.1, which includes the Log4Shell rules; the check only recognises OWASP CRS.
+  - CKV_AZURE_135
+  # The port-80 listener is a bootstrap placeholder replaced by AGIC (ssl-redirect is enforced per Ingress).
+  - CKV_AZURE_217
+  # Files-only account: share soft delete is configured (share_properties.retention_policy); blob soft delete is irrelevant.
+  - CKV2_AZURE_38
+  # Entra ID SSH login requires the AADSSHLoginForLinux extension.
+  - CKV_AZURE_50
+  # --- Deliberate POC decisions (production follow-up in docs/security.md) ------
+  # Terraform state account: public endpoint protected by Entra-only auth (no keys/SAS) because
+  # GitHub-hosted runners have no private network path. Production: private endpoint + self-hosted runners.
+  - CKV2_AZURE_33
+  - CKV_AZURE_35
+  - CKV_AZURE_59
+  # State account has no queues/read-logging workspace at bootstrap time.
+  - CKV2_AZURE_21
+  - CKV_AZURE_33
+  # Geo-redundant PostgreSQL backups: off in dev/test for cost, on in prod tfvars.
+  - CKV_AZURE_136
+  # ACR: Standard SKU in dev/test cannot disable public access; images are scanned in CI
+  # (Trivy) instead of ACR quarantine; signing (Notation/cosign + Ratify) is a production follow-up.
+  - CKV_AZURE_139
+  - CKV_AZURE_164
+  - CKV_AZURE_165
+  - CKV_AZURE_166
+  # Single-region POC: LRS storage, no ACR zone redundancy (ZRS / Premium zone redundancy in prod tfvars).
+  - CKV_AZURE_206
+  - CKV_AZURE_233
+  # Platform-managed encryption keys (infrastructure encryption on). CMK is a regulated-data follow-up.
+  - CKV2_AZURE_1
+  # max_pods is 110 via an optional() object default that Checkov cannot resolve.
+  - CKV_AZURE_168
+  # OS disks use platform-managed keys + encryption at host; a disk encryption set (CMK) is a regulated-data follow-up.
+  - CKV_AZURE_117

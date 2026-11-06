@@ -1,0 +1,132 @@
+name: test
+
+# Unit tests for every component on each pull request, plus an integration job
+# that runs the real stack (PostgreSQL 17, Redis 8, db-bootstrap, migrations,
+# five services) and the integration test suites against it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.17.4
+      - run: ruff check . && ruff format --check .
+
+  unit:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - libs/svc-common
+          - services/frontend
+          - services/user-service
+          - services/product-service
+          - services/order-service
+          - services/notification-service
+          - tools/db-bootstrap
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: install
+        run: |
+          pip install ./libs/svc-common pytest==9.2.0 fakeredis==2.40.0
+          if [ -f "${{ matrix.component }}/requirements.txt" ]; then pip install -r "${{ matrix.component }}/requirements.txt"; fi
+      - name: pytest
+        working-directory: ${{ matrix.component }}
+        env:
+          REDIS_ENABLED: "false"
+        run: python -m pytest -q tests --junitxml=junit.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: junit-${{ strategy.job-index }}
+          path: ${{ matrix.component }}/junit.xml
+
+  integration:
+    runs-on: ubuntu-24.04
+    needs: unit
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pgadmin
+          POSTGRES_PASSWORD: localadmin
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U pgadmin" --health-interval 2s --health-retries 30
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+    env:
+      DB_HOST: 127.0.0.1
+      DB_AUTH_MODE: password
+      DB_SSLMODE: disable
+      INTERNAL_API_KEYS: ci-integration-key
+      INTERNAL_API_KEYS_FILE: ""
+      REDIS_URL: redis://127.0.0.1:6379/0
+      SHARED_STORAGE_ENABLED: "true"
+      SHARED_MOUNT_PATH: /tmp/shared
+      SECURE_COOKIES: "false"
+      USER_SERVICE_URL: http://127.0.0.1:8001
+      PRODUCT_SERVICE_URL: http://127.0.0.1:8002
+      ORDER_SERVICE_URL: http://127.0.0.1:8003
+      NOTIFICATION_SERVICE_URL: http://127.0.0.1:8004
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: |
+          pip install ./libs/svc-common -r services/frontend/requirements.txt -r tools/db-bootstrap/requirements.txt pytest==9.2.0
+          redis-cli -h 127.0.0.1 config set maxmemory-policy noeviction || true
+          mkdir -p /tmp/shared/{common,frontend,user-service,product-service,order-service,notification-service}
+      - name: db-bootstrap (databases, roles, grants)
+        run: |
+          sed "s#/config/airflow-password#$PWD/tools/db-bootstrap/local/airflow-password#" tools/db-bootstrap/local/bootstrap.yaml > /tmp/bootstrap.yaml
+          python tools/db-bootstrap/bootstrap.py --config /tmp/bootstrap.yaml --auth password \
+            --admin-password-file tools/db-bootstrap/local/admin-password --host 127.0.0.1 --admin-user pgadmin --sslmode disable
+      - name: migrations (as each service role, twice to prove idempotency)
+        run: |
+          for pair in user-service:users_db product-service:products_db order-service:orders_db; do
+            s=${pair%%:*}; db=${pair##*:}
+            for i in 1 2; do (cd services/$s && SERVICE_NAME=$s DB_NAME=$db DB_USER=$s DB_PASSWORD=$s python -m svc_common.migrate --dir migrations); done
+          done
+      - name: start services
+        run: |
+          start() { (cd services/$1 && env $3 nohup uvicorn app.main:build --factory --host 127.0.0.1 --port $2 > /tmp/$1.log 2>&1 &); }
+          start user-service 8001 "DB_NAME=users_db DB_USER=user-service DB_PASSWORD=user-service"
+          start product-service 8002 "DB_NAME=products_db DB_USER=product-service DB_PASSWORD=product-service"
+          start order-service 8003 "DB_NAME=orders_db DB_USER=order-service DB_PASSWORD=order-service"
+          start notification-service 8004 ""
+          start frontend 8005 ""
+          for p in 8001 8002 8003 8004 8005; do
+            for i in $(seq 1 30); do curl -fs "http://127.0.0.1:$p/healthz/ready" && break; sleep 1; done
+          done
+      - name: integration tests
+        run: |
+          for pair in user-service:8001 product-service:8002 order-service:8003 notification-service:8004; do
+            s=${pair%%:*}; p=${pair##*:}
+            (cd services/$s && INTEGRATION_BASE_URL=http://127.0.0.1:$p INTERNAL_API_KEY=$INTERNAL_API_KEYS python -m pytest -q tests/integration)
+          done
+          curl -fs http://127.0.0.1:8005/ | grep -q "AKS POC Shop"
+      - name: service logs
+        if: failure()
+        run: tail -n 100 /tmp/*-service.log /tmp/frontend.log

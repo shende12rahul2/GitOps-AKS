@@ -1,0 +1,21 @@
+# Overridden by environments/<env>/argocd.yaml.
+environment: dev
+repoURL: https://github.com/REPLACE_ORG/aks-gitops-deployment.git
+targetRevision: main
+ingressMode: agic
+sync:
+  automated: true
+  prune: true
+  selfHeal: true
+syncWindows: []
+helmRepos:
+  certManager: https://charts.jetstack.io
+  airflow: https://airflow.apache.org
+  traefik: https://traefik.github.io/charts
+  argocd: https://argoproj.github.io/argo-helm
+chartVersions:
+  certManager: v1.21.3
+  airflow: 1.22.0
+  traefik: 42.3.0
+  argocd: 10.14.0
+services: [frontend, user-service, product-service, order-service, notification-service]

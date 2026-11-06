@@ -1,0 +1,4 @@
+# Extra Python packages baked into the custom Airflow image (never installed by
+# Git-Sync). Versions must satisfy the official constraints for Airflow 3.2.2:
+# https://raw.githubusercontent.com/apache/airflow/constraints-3.2.2/constraints-3.12.txt
+apache-airflow-providers-http==6.0.2

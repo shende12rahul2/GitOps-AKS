@@ -1,0 +1,15 @@
+# Values used by CI (helm lint/template/kubeconform). Not deployed.
+global:
+  environment: ci
+  tenantId: 11111111-1111-1111-1111-111111111111
+  keyVaultName: kv-ci
+  workloadIdentities:
+    order-service: { clientId: 33333333-3333-3333-3333-333333333333, name: id-akspoc-ci-order-service }
+  postgres: { host: psql-ci.private.postgres.database.azure.com }
+  redis: { host: redis-ci.eastus2.redis.azure.net }
+image:
+  repository: acrci.azurecr.io/order-service
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  tag: sha-ci
+autoscaling:
+  enabled: true

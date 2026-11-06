@@ -1,0 +1,4 @@
+rendered/
+.chart-cache/
+.render-values.yaml
+*.tgz

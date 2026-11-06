@@ -1,0 +1,154 @@
+# Default values for product-service. Environment-specific values live in
+# aks-gitops-deployment/environments/<env>/apps/product-service.yaml, and the shared
+# infrastructure contract (tenant, Key Vault, identities, endpoints) in
+# environments/<env>/infrastructure.yaml under `global`.
+# All sizing values are starting points: tune them from Container Insights /
+# Prometheus measurements (see docs/aks-sizing.md).
+
+global:
+  environment: local
+  tenantId: ""
+  keyVaultName: ""
+  workloadIdentities: {}
+  postgres: {}
+  redis: {}
+  ingress:
+    mode: agic
+    gatewaySubnetCidr: 10.10.4.0/24
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: ""
+  # Immutable digest written by CI (update-gitops.yml). Required.
+  digest: ""
+  # Informational (source commit); never used to pull unless allowTagOnly.
+  tag: ""
+  allowTagOnly: false
+  pullPolicy: IfNotPresent
+
+containerPort: 8000
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+
+logLevel: INFO
+hstsEnabled: true
+
+config:
+  CACHE_ITEM_TTL_SECONDS: "60"
+  CACHE_LIST_TTL_SECONDS: "30"
+
+extraEnv: []
+
+serviceAccount:
+  create: true
+  # Must match the federated credential subject system:serviceaccount:apps:product-service.
+  name: ""
+  annotations: {}
+
+workloadIdentity:
+  enabled: true
+  # Defaults to global.workloadIdentities.product-service.clientId.
+  clientId: ""
+
+database:
+  enabled: true
+  host: ""
+  port: 5432
+  name: products_db
+  # PostgreSQL role = managed identity name (global.workloadIdentities.product-service.name).
+  user: ""
+  # entra: passwordless (workload identity token). password: local/dev only.
+  authMode: entra
+  sslmode: require
+  # SQLAlchemy pool per replica. Burstable B2s allows ~429 connections in total.
+  poolSize: 3
+  maxOverflow: 2
+
+migrations:
+  enabled: true
+
+redis:
+  enabled: true
+  host: ""
+  port: 10000
+  authMode: entra
+  keyPrefix: "app:product-service"
+
+keyVault:
+  enabled: true
+  name: ""
+  mountPath: /mnt/secrets
+  secrets:
+    - objectName: internal-api-key
+      fileName: internal-api-key
+
+sharedStorage:
+  enabled: true
+  existingClaim: shared-files-pvc
+  mountPath: /mnt/shared
+  readOnly: false
+
+probes:
+  livenessPath: /healthz/live
+  readinessPath: /healthz/ready
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 384Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: null
+
+podDisruptionBudget:
+  enabled: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+
+networkPolicy:
+  enabled: true
+  # Pods (app.kubernetes.io/name) in the same namespace allowed to call this service.
+  allowFromServices: ["frontend", "order-service"]
+  # Airflow Celery workers (DAG tasks).
+  allowFromAirflow: true
+  # Ingress controller (App Gateway subnet in AGIC mode, ingress namespace otherwise).
+  allowFromIngress: true
+
+priorityClassName: ""
+
+# AKS user pool label set by Terraform (workload-class = pool name).
+nodeSelector:
+  workload-class: apps
+
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+podLabels: {}
+podAnnotations: {}

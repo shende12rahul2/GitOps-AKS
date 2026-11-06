@@ -1,0 +1,86 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: airflow
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Airflow components talk to each other (execution API, log server, statsd).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: airflow
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress
+  namespace: airflow
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    {{- include "np.dns" . | nindent 4 }}
+    - to:
+        - ipBlock: { cidr: {{ .Values.global.network.postgresSubnetCidr }} }
+      ports:
+        - { port: 5432, protocol: TCP }
+    - to:
+        - ipBlock: { cidr: {{ .Values.global.network.privateEndpointSubnetCidr }} }
+      ports:
+        - { port: 10000, protocol: TCP }
+    # DAG tasks call the microservices.
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: apps }
+      ports:
+        - { port: 8000, protocol: TCP }
+    # Entra ID (OAuth sign-in) and GitHub (Git-Sync over SSH).
+    {{- include "np.internet443" . | nindent 4 }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.privateRanges | nindent 14 }}
+      ports:
+        - { port: {{ .Values.gitSync.sshPort }}, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ui-from-ingress
+  namespace: airflow
+spec:
+  podSelector:
+    matchLabels: { component: api-server }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- include "np.ingressSource" . | nindent 8 }}
+      ports:
+        - { port: 8080, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metrics-scrape
+  namespace: airflow
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }

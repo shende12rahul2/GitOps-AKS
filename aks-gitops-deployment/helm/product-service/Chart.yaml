@@ -1,0 +1,10 @@
+apiVersion: v2
+name: product-service
+description: "Products REST API with PostgreSQL (products_db) and Azure Managed Redis caching"
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.30.0-0"
+keywords: [aks-poc, microservice]
+annotations:
+  category: application

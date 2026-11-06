@@ -1,0 +1,29 @@
+# Configuration read by the AKS managed Prometheus add-on (ama-metrics).
+# https://learn.microsoft.com/azure/azure-monitor/containers/prometheus-metrics-scrape-configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ama-metrics-settings-configmap
+  namespace: kube-system
+data:
+  schema-version: v1
+  config-version: ver1
+  prometheus-collector-settings: |-
+    cluster_alias = ""
+  default-scrape-settings-enabled: |-
+    {{- range $k, $v := .Values.defaultTargets }}
+    {{ $k }} = {{ $v }}
+    {{- end }}
+  pod-annotation-based-scraping: |-
+    podannotationnamespaceregex = "{{ join "|" .Values.podAnnotationNamespaces }}"
+  default-targets-metrics-keep-list: |-
+    kubelet = ""
+    cadvisor = ""
+    kubestate = ""
+    nodeexporter = ""
+  default-targets-scrape-interval-settings: |-
+    kubelet = "60s"
+    cadvisor = "60s"
+    kubestate = "60s"
+    nodeexporter = "60s"
+    podannotations = "60s"

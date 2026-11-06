@@ -1,0 +1,15 @@
+global:
+  ingress:
+    mode: agic
+    gatewaySubnetCidr: 10.10.4.0/24
+  network:
+    privateEndpointSubnetCidr: 10.10.5.0/24
+    postgresSubnetCidr: 10.10.6.0/27
+
+# Internet egress on 443 is needed for Microsoft Entra ID token exchange
+# (workload identity) and OAuth sign-in. Kubernetes NetworkPolicy cannot match
+# FQDNs; restrict further with Azure Firewall or ACNS FQDN filtering in production.
+privateRanges: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+gitSync:
+  # GitHub over SSH (deploy key) for Airflow Git-Sync.
+  sshPort: 22

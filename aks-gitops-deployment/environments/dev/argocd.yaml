@@ -1,0 +1,11 @@
+# Root app-of-apps values for dev (argocd/applications, projects, applicationsets).
+environment: dev
+repoURL: git@github.com:REPLACE_ORG/aks-gitops-deployment.git
+targetRevision: main
+ingressMode: agic
+sync:
+  automated: true
+  prune: true
+  selfHeal: true
+syncWindows: []
+services: [frontend, user-service, product-service, order-service, notification-service]

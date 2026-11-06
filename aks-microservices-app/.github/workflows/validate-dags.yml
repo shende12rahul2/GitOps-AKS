@@ -1,0 +1,46 @@
+name: validate-dags
+
+# Gate for every DAG change. Branch protection on main requires this check, and
+# Git-Sync only follows main, so an invalid DAG cannot reach Airflow.
+on:
+  pull_request:
+    paths: ["airflow/**", ".github/workflows/validate-dags.yml"]
+  push:
+    branches: [main]
+    paths: ["airflow/**"]
+
+permissions:
+  contents: read
+
+env:
+  AIRFLOW_VERSION: "3.2.2"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: install Airflow (official constraints) + image requirements
+        run: |
+          C="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+          pip install "apache-airflow[celery,postgres,redis]==${AIRFLOW_VERSION}" -r airflow/requirements.txt pytest ruff==0.17.4 --constraint "$C"
+      - name: lint DAGs
+        run: ruff check airflow && ruff format --check airflow
+      - name: DagBag import + policy tests
+        working-directory: airflow
+        env:
+          AIRFLOW_HOME: /tmp/airflow
+          AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+        run: python -m pytest -q tests
+      - name: no secrets in DAGs
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: airflow
+          scanners: secret
+          exit-code: "1"

@@ -1,0 +1,11 @@
+# Root app-of-apps values for test (argocd/applications, projects, applicationsets).
+environment: test
+repoURL: git@github.com:REPLACE_ORG/aks-gitops-deployment.git
+targetRevision: main
+ingressMode: agic
+sync:
+  automated: true
+  prune: false
+  selfHeal: true
+syncWindows: []
+services: [frontend, user-service, product-service, order-service, notification-service]

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: argocd-projects
+description: "Argo CD projects for one environment (rendered by the root app-of-apps)"
+type: application
+version: 1.0.0

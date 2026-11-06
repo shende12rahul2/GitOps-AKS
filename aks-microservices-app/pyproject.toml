@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "SIM", "RUF"]
+ignore = ["S101", "S104", "B008", "RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S105", "S106", "S108", "S311"]
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "svc_common", "bootstrap", "aks_poc"]

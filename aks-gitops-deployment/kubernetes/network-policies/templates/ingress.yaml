@@ -1,0 +1,41 @@
+{{- if eq .Values.global.ingress.mode "internal" }}
+# In-cluster ingress controller (internal load balancer): accepts private
+# clients only and forwards to the application/admin backends.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-controller
+  namespace: ingress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - ipBlock: { cidr: 10.0.0.0/8 }
+      ports:
+        - { port: 8000, protocol: TCP }
+        - { port: 8443, protocol: TCP }
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+  egress:
+    {{- include "np.dns" . | nindent 4 }}
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: apps }
+      ports:
+        - { port: 8000, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: airflow }
+      ports:
+        - { port: 8080, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: argocd }
+      ports:
+        - { port: 8080, protocol: TCP }
+    # Kubernetes API (Ingress/Service discovery).
+    - ports:
+        - { port: 443, protocol: TCP }
+{{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: platform-monitoring
+description: "Managed Prometheus scrape settings (pod annotations) for application and Airflow metrics"
+type: application
+version: 1.0.0
+kubeVersion: ">=1.30.0-0"

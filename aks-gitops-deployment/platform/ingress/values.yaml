@@ -1,0 +1,58 @@
+global:
+  dnsZone: poc.example.com
+  ingress:
+    # agic     = Application Gateway (WAF_v2) + AGIC add-on (Terraform ingress_mode = agic)
+    # internal = in-cluster Traefik behind an internal Azure load balancer (ingress_mode = internal)
+    mode: agic
+    hosts:
+      app: app.poc.example.com
+      argocd: argocd.poc.example.com
+      airflow: airflow.poc.example.com
+    # true: bind the application listener to the public WAF frontend (Terraform
+    # appgw_public_frontend_enabled). Admin hostnames always stay private.
+    publicApp: false
+
+tls:
+  # poc-ca: private CA (clients must trust the CA certificate, exported by the runbook).
+  # letsencrypt: publicly trusted certificates via ACME DNS-01 on a public Azure DNS zone.
+  issuer: poc-ca
+  letsencrypt:
+    email: ""
+    server: https://acme-v02.api.letsencrypt.org/directory
+    azureDNS:
+      subscriptionID: ""
+      resourceGroupName: ""
+      hostedZoneName: ""
+      # cert-manager workload identity with "DNS Zone Contributor" on the zone.
+      managedIdentityClientID: ""
+
+apps:
+  namespace: apps
+  routes:
+    # Each backend serves its full /api/<resource> prefix: no path rewriting needed.
+    - { path: /api/users, service: user-service }
+    - { path: /api/products, service: product-service }
+    - { path: /api/orders, service: order-service }
+    - { path: /api/notifications, service: notification-service }
+    - { path: /, service: frontend }
+  port: 8000
+  healthProbePath: /healthz/ready
+
+admin:
+  argocd:
+    enabled: true
+    namespace: argocd
+    service: argocd-server
+    port: 80
+    healthProbePath: /healthz
+  airflow:
+    enabled: true
+    namespace: airflow
+    service: airflow-api-server
+    port: 8080
+    healthProbePath: /api/v2/monitor/health
+
+agic:
+  className: azure-application-gateway
+  requestTimeoutSeconds: 60
+  connectionDrainingSeconds: 30

@@ -1,0 +1,4 @@
+{{ include "svc.fullname" . }} deployed to namespace {{ .Release.Namespace }}.
+Image: {{ include "svc.image" . }}
+Service: http://{{ include "svc.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+Health:  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "svc.fullname" . }} -- python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:{{ .Values.containerPort }}{{ .Values.probes.readinessPath }}').read())"

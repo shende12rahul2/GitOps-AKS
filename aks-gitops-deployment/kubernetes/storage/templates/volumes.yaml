@@ -1,0 +1,60 @@
+{{- $af := .Values.global.azureFiles }}
+{{- range $name, $v := .Values.volumes }}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: aks-poc
+  annotations:
+    # Retain: deleting the PVC/PV never deletes data; the share belongs to Terraform.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  capacity:
+    storage: {{ $v.capacity }}
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - dir_mode={{ $v.dirMode }}
+    - file_mode={{ $v.fileMode }}
+    - uid={{ $v.uid }}
+    - gid={{ $v.gid }}
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+    - actimeo=30
+  csi:
+    driver: file.csi.azure.com
+    # Must be unique per share in the cluster.
+    volumeHandle: {{ printf "%s#%s#%s" ($af.resourceGroup | required "global.azureFiles.resourceGroup is required") ($af.storageAccount | required "global.azureFiles.storageAccount is required") $v.share }}
+    volumeAttributes:
+      resourceGroup: {{ $af.resourceGroup }}
+      storageAccount: {{ $af.storageAccount }}
+      shareName: {{ $v.share }}
+      protocol: smb
+      # Kerberos/SMB OAuth with the kubelet managed identity: no account key exists.
+      mountWithManagedIdentity: "true"
+      {{- with $af.kubeletClientId }}
+      clientID: {{ . | quote }}
+      {{- end }}
+  claimRef:
+    namespace: {{ $v.namespace }}
+    name: {{ $v.claimName }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $v.claimName }}
+  namespace: {{ $v.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: pv-{{ $name }}
+  resources:
+    requests:
+      storage: {{ $v.capacity }}
+{{- end }}

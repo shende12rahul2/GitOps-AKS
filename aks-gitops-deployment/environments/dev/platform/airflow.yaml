@@ -1,0 +1,10 @@
+# Airflow overrides for dev.
+apiServer:
+  replicas: 1
+workers:
+  replicas: 1
+dags:
+  gitSync:
+    # Git-Sync follows the protected branch; only validated, approved DAGs reach Airflow.
+    # Roll back a bad DAG with a revert PR, or pin a known-good commit SHA here.
+    ref: main

@@ -1,0 +1,14 @@
+# Image provenance admission policy mode for the application namespace.
+policies:
+  apps:
+    action: Deny
+    requireDigest: true
+    extraRegistries: []
+  airflow:
+    action: Deny
+    requireDigest: false
+    extraRegistries: [registry.k8s.io/git-sync/, quay.io/prometheus/statsd-exporter, mcr.microsoft.com/oss/kubernetes/pause]
+  platform-jobs:
+    action: Deny
+    requireDigest: true
+    extraRegistries: []

@@ -1,0 +1,23 @@
+#cloud-config
+# Administration tooling for the private AKS cluster, installed from official
+# sources only: Ubuntu archive, Microsoft (Azure CLI), Snapcraft (Helm) and the
+# Argo CD GitHub release pinned to the server version.
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - jq
+  - gnupg
+  - lsb-release
+  - postgresql-client
+  - redis-tools
+  - git
+runcmd:
+  # Azure CLI from the Microsoft apt repository (documented install script).
+  - curl -sL https://aka.ms/InstallAzureCLIDeb -o /tmp/install-az.sh && bash /tmp/install-az.sh && rm -f /tmp/install-az.sh
+  # kubectl + kubelogin (Entra ID auth plugin) via the Azure CLI.
+  - az aks install-cli --install-location /usr/local/bin/kubectl --kubelogin-install-location /usr/local/bin/kubelogin
+  - snap install helm --classic
+  # Keep the CLI on the same minor version as the Argo CD server (chart 10.14.0 => v3.6.1).
+  - curl -fsSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-linux-amd64
+  - chmod 0755 /usr/local/bin/argocd

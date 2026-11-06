@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AKS POC Shop</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>AKS POC Shop</h1>
+  <p class="meta">{{ settings.environment }} &middot; pod {{ settings.pod_name }} on node {{ settings.node_name }} &middot; v{{ settings.version }}</p>
+</header>
+{% if message %}<p class="flash">{{ message }}</p>{% endif %}
+<main>
+  <section>
+    <h2>Users</h2>
+    <table><thead><tr><th>ID</th><th>Name</th><th>Email</th></tr></thead><tbody>
+    {% for u in users %}<tr><td>{{ u.id }}</td><td>{{ u.full_name }}</td><td>{{ u.email }}</td></tr>{% else %}<tr><td colspan="3">No users (user-service unavailable?)</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <section>
+    <h2>Products <span class="badge">cache: {{ cache_status or "n/a" }}</span></h2>
+    <table><thead><tr><th>ID</th><th>SKU</th><th>Name</th><th>Price</th><th>Stock</th></tr></thead><tbody>
+    {% for p in products %}<tr><td>{{ p.id }}</td><td>{{ p.sku }}</td><td>{{ p.name }}</td><td>{{ "%.2f"|format(p.price_cents / 100) }}</td><td>{{ p.stock }}</td></tr>{% else %}<tr><td colspan="5">No products</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <section>
+    <h2>Place an order</h2>
+    <form method="post" action="/orders">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>User <select name="user_id">{% for u in users %}<option value="{{ u.id }}">{{ u.full_name }}</option>{% endfor %}</select></label>
+      <label>Product <select name="product_id">{% for p in products %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></label>
+      <label>Qty <input type="number" name="quantity" value="1" min="1" max="10"></label>
+      <button type="submit">Order</button>
+    </form>
+  </section>
+  <section>
+    <h2>Recent orders</h2>
+    <table><thead><tr><th>ID</th><th>User</th><th>Status</th><th>Total</th><th>Notification</th></tr></thead><tbody>
+    {% for o in orders %}<tr><td>{{ o.id }}</td><td>{{ o.user_id }}</td><td class="status-{{ o.status|lower }}">{{ o.status }}</td><td>{{ "%.2f"|format(o.total_cents / 100) }}</td><td>{{ o.notification_id or "" }}</td></tr>{% else %}<tr><td colspan="5">No orders yet</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <section>
+    <h2>Latest notifications <span class="badge">read from Azure Files</span></h2>
+    <ul class="notifications">
+    {% for n in notifications %}<li><strong>{{ n.subject }}</strong> &mdash; {{ n.message }}<br><small>written by {{ n.written_by.pod }} on {{ n.written_by.node }} at {{ n.created_at }}</small></li>{% else %}<li>No notifications on the shared volume yet</li>{% endfor %}
+    </ul>
+  </section>
+</main>
+</body>
+</html>

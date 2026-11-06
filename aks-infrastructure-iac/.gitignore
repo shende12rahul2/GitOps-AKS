@@ -1,0 +1,23 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+tfplan
+plan.json
+plan.txt
+plan.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Never commit real secrets or local variable overrides
+*.auto.tfvars
+secrets.tfvars
+*.pem
+*.key
+.env

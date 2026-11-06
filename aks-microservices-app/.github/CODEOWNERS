@@ -1,0 +1,5 @@
+*                         @REPLACE_ORG/app-developers
+/airflow/                 @REPLACE_ORG/app-developers @REPLACE_ORG/data-engineers
+/libs/                    @REPLACE_ORG/app-leads
+/tools/db-bootstrap/      @REPLACE_ORG/platform-team
+/.github/                 @REPLACE_ORG/platform-team

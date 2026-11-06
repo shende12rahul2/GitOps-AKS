@@ -1,0 +1,121 @@
+name: build
+
+# Builds and publishes immutable images after an approved merge to main, then
+# opens a GitOps pull request for dev. This workflow never talks to AKS:
+# deployment is Argo CD reconciling the GitOps repository.
+on:
+  push:
+    branches: [main]
+    paths: ["services/**", "libs/**", "airflow/Dockerfile", "airflow/requirements.txt", "airflow/plugins/**", "tools/db-bootstrap/**"]
+  workflow_dispatch:
+    inputs:
+      images:
+        description: "Images to build: all, or a comma-separated list (e.g. user-service,airflow)"
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-main
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      any: ${{ steps.m.outputs.any }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: m
+        run: python3 .github/scripts/changed-images.py "${{ github.event.before || 'HEAD~1' }}" "${{ github.sha }}" "${{ inputs.images }}" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.any == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write        # OIDC -> Entra (AcrPush on the dev registry only)
+      security-events: write # Trivy SARIF
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    env:
+      ACR: ${{ vars.ACR_NAME_DEV }}
+      IMAGE: ${{ vars.ACR_NAME_DEV }}.azurecr.io/${{ matrix.name }}
+      TAG: sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Azure login (OIDC, no secrets)
+        uses: azure/login@053f7285eb20bf5469ef084617b0b24d3cec53fc # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_ACR_DEV }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID_DEV }}
+      - run: az acr login --name "$ACR"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: build and push (SBOM + provenance attestations)
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.TAG }}
+          build-args: APP_VERSION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      - name: Trivy image scan (fail on fixable CRITICAL)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          output: trivy-image.sarif
+      - uses: github/codeql-action/upload-sarif@f3bbb05694c2f74569081c28664c0866d64dec21 # v4.39.3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+          category: image-${{ matrix.name }}
+      - name: record digest
+        run: |
+          mkdir -p digests
+          jq -n --arg n "${{ matrix.name }}" --arg r "$IMAGE" --arg d "${{ steps.build.outputs.digest }}" --arg t "$TAG" \
+            '{($n): {repository: $r, digest: $d, tag: $t}}' > "digests/${{ matrix.name }}.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.name }}
+          path: digests/${{ matrix.name }}.json
+
+  collect:
+    needs: image
+    runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.merge.outputs.images }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - id: merge
+        run: echo "images=$(jq -cs 'add' digests/*.json)" >> "$GITHUB_OUTPUT"
+
+  gitops-dev:
+    needs: collect
+    uses: ./.github/workflows/update-gitops.yml
+    with:
+      environment: dev
+      images: ${{ needs.collect.outputs.images }}
+    secrets: inherit

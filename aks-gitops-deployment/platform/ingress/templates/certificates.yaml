@@ -1,0 +1,23 @@
+{{- $certs := list (list .Values.apps.namespace "app-tls" .Values.global.ingress.hosts.app) }}
+{{- if .Values.admin.argocd.enabled }}{{- $certs = append $certs (list .Values.admin.argocd.namespace "argocd-tls" .Values.global.ingress.hosts.argocd) }}{{- end }}
+{{- if .Values.admin.airflow.enabled }}{{- $certs = append $certs (list .Values.admin.airflow.namespace "airflow-tls" .Values.global.ingress.hosts.airflow) }}{{- end }}
+{{- range $certs }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ index . 1 }}
+  namespace: {{ index . 0 }}
+spec:
+  secretName: {{ index . 1 }}
+  dnsNames: [{{ index . 2 | quote }}]
+  duration: 2160h    # 90 days
+  renewBefore: 720h  # renew 30 days before expiry
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: {{ $.Values.tls.issuer }}
+    kind: ClusterIssuer
+{{- end }}

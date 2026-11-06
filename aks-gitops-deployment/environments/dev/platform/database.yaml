@@ -1,0 +1,2 @@
+# Entra groups granted read-only SQL access (<db>_readonly) to application databases.
+readerGroups: [qa, developers]

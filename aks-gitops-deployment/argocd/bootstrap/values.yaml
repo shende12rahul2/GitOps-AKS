@@ -1,0 +1,110 @@
+# Base values for the Argo CD Helm chart (argo-cd 10.14.0, Argo CD v3.6.1).
+# Environment specifics (URL, SSO client ID, RBAC group IDs) are layered from
+# environments/<env>/argocd-values.yaml. Used for the one-time bootstrap
+# install and afterwards by the self-managing "argocd" Application.
+
+global:
+  domain: argocd.poc.example.com
+  networkPolicy:
+    create: true
+    defaultDenyIngress: false
+  nodeSelector:
+    workload-class: apps
+
+configs:
+  params:
+    # TLS terminates at the ingress (App Gateway or Traefik); clients use --grpc-web.
+    server.insecure: true
+    controller.diff.server.side: true
+    application.namespaces: ""
+  cm:
+    # Local admin disabled: Microsoft Entra ID SSO only (break-glass: re-enable via Git).
+    admin.enabled: false
+    exec.enabled: false
+    statusbadge.enabled: false
+    timeout.reconciliation: 180s
+    resource.exclusions: |
+      - apiGroups: ["cilium.io"]
+        kinds: ["CiliumIdentity", "CiliumEndpoint", "CiliumEndpointSlice"]
+        clusters: ["*"]
+    # Restore Application health so sync waves wait for child Applications
+    # (app-of-apps ordering: namespaces -> policies -> storage -> platform -> apps).
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+    # oidc.config and url are set per environment (argocd-values.yaml).
+  rbac:
+    # No implicit access: every permission comes from an Entra group mapping.
+    policy.default: ""
+    scopes: "[groups]"
+    policy.csv: |
+      p, role:platform-admin, *, *, */*, allow
+      p, role:devops, applications, get, */*, allow
+      p, role:devops, applications, sync, */*, allow
+      p, role:devops, applications, action/*, */*, allow
+      p, role:devops, applications, override, */*, allow
+      p, role:devops, applications, delete, */*, deny
+      p, role:devops, logs, get, */*, allow
+      p, role:devops, projects, get, *, allow
+      p, role:devops, repositories, get, *, allow
+      p, role:devops, clusters, get, *, allow
+      p, role:qa, applications, get, apps/*, allow
+      p, role:qa, applications, get, airflow/*, allow
+      p, role:qa, logs, get, apps/*, allow
+      p, role:developer, applications, get, apps/*, allow
+      p, role:developer, applications, get, airflow/*, allow
+      p, role:developer, logs, get, apps/*, allow
+
+server:
+  replicas: 1
+  # Entra ID SSO with workload identity federation (no client secret).
+  serviceAccount:
+    create: true
+    name: argocd-server
+  podLabels:
+    azure.workload.identity/use: "true"
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  ingress:
+    enabled: false   # central Ingress in platform/ingress (private hostname)
+
+controller:
+  replicas: 1
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1536Mi }
+
+repoServer:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+applicationSet:
+  replicas: 1
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+
+redis:
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+
+redis-ha:
+  enabled: false   # single Redis is enough for a POC; enable HA for production
+
+dex:
+  enabled: false   # Argo CD talks to Entra ID directly (OIDC)
+
+notifications:
+  enabled: false

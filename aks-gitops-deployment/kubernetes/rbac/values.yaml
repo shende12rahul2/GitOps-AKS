@@ -1,0 +1,16 @@
+global:
+  environment: local
+  # Entra group object IDs (environments/<env>/infrastructure.yaml).
+  entraGroups:
+    platformAdmins: ""
+    devops: ""
+    developers: ""
+    qa: ""
+    readers: ""
+
+# Azure RBAC for Kubernetes (Terraform) grants the baseline per persona:
+#   platform admins: RBAC Cluster Admin; DevOps: Reader + Writer (apps, airflow);
+#   developers/QA: Reader (apps, airflow); readers: Reader (cluster).
+# These Kubernetes RoleBindings add narrowly scoped extras on top.
+developerPortForward: false   # true in dev: developers may port-forward to services
+workloadNamespaces: [apps, airflow]

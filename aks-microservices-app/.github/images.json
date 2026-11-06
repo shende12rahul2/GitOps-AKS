@@ -1,0 +1,44 @@
+{
+  "frontend": {
+    "dockerfile": "services/frontend/Dockerfile",
+    "paths": ["services/frontend/", "libs/"],
+    "gitops_file": "environments/{env}/apps/frontend.yaml",
+    "gitops_path": ".image"
+  },
+  "user-service": {
+    "dockerfile": "services/user-service/Dockerfile",
+    "paths": ["services/user-service/", "libs/"],
+    "gitops_file": "environments/{env}/apps/user-service.yaml",
+    "gitops_path": ".image"
+  },
+  "product-service": {
+    "dockerfile": "services/product-service/Dockerfile",
+    "paths": ["services/product-service/", "libs/"],
+    "gitops_file": "environments/{env}/apps/product-service.yaml",
+    "gitops_path": ".image"
+  },
+  "order-service": {
+    "dockerfile": "services/order-service/Dockerfile",
+    "paths": ["services/order-service/", "libs/"],
+    "gitops_file": "environments/{env}/apps/order-service.yaml",
+    "gitops_path": ".image"
+  },
+  "notification-service": {
+    "dockerfile": "services/notification-service/Dockerfile",
+    "paths": ["services/notification-service/", "libs/"],
+    "gitops_file": "environments/{env}/apps/notification-service.yaml",
+    "gitops_path": ".image"
+  },
+  "airflow": {
+    "dockerfile": "airflow/Dockerfile",
+    "paths": ["airflow/Dockerfile", "airflow/requirements.txt", "airflow/plugins/"],
+    "gitops_file": "environments/{env}/platform/airflow-image.yaml",
+    "gitops_path": ".images.airflow"
+  },
+  "db-bootstrap": {
+    "dockerfile": "tools/db-bootstrap/Dockerfile",
+    "paths": ["tools/db-bootstrap/"],
+    "gitops_file": "environments/{env}/platform/db-bootstrap-image.yaml",
+    "gitops_path": ".image"
+  }
+}

@@ -1,0 +1,6 @@
+# Written by update-gitops.yml (image "airflow"). Custom image = official 3.2.2 + providers + plugins.
+images:
+  airflow:
+    repository: acrakspocdeveus2a1b2.azurecr.io/airflow
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    tag: sha-initial

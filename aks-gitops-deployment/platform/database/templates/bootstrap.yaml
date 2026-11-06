@@ -1,0 +1,142 @@
+{{- $wi := .Values.global.workloadIdentities }}
+{{- $admin := dig "db-bootstrap" "name" "" $wi | required "global.workloadIdentities.db-bootstrap is required" }}
+{{- $readers := list }}
+{{- range $key := .Values.readerGroups }}
+{{- if index $.Values.global.entraGroups (printf "%sName" $key) }}
+{{- $readers = append $readers (printf "group-%s" $key) }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: db-bootstrap
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    azure.workload.identity/client-id: {{ dig "db-bootstrap" "clientId" "" $wi | quote }}
+    azure.workload.identity/tenant-id: {{ .Values.global.tenantId | quote }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-bootstrap-config
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+data:
+  bootstrap.yaml: |
+    principals:
+      {{- range $svc := list "user-service" "product-service" "order-service" }}
+      {{ $svc }}:
+        type: entra-service
+        role: {{ dig $svc "name" "" $wi | required (printf "global.workloadIdentities.%s.name is required" $svc) | quote }}
+        object_id: {{ dig $svc "principalId" "" $wi | quote }}
+      {{- end }}
+      {{- range $key := .Values.readerGroups }}
+      {{- with (index $.Values.global.entraGroups (printf "%sName" $key)) }}
+      group-{{ $key }}:
+        # Entra group role: members sign in with the group name as user name.
+        type: entra-group
+        role: {{ . | quote }}
+        object_id: {{ index $.Values.global.entraGroups $key | quote }}
+      {{- end }}
+      {{- end }}
+      airflow-db:
+        type: password
+        role: {{ .Values.airflowRole.name }}
+        password_file: /mnt/secrets/airflow-db-password
+        connection_limit: {{ .Values.airflowRole.connectionLimit }}
+    databases:
+      {{- range .Values.databases }}
+      - name: {{ .name }}
+        owner: {{ .owner }}
+        {{- if ne .owner "airflow-db" }}
+        readers: {{ toJson $readers }}
+        {{- end }}
+      {{- end }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: db-bootstrap-kv
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    clientID: {{ dig "db-bootstrap" "clientId" "" $wi | quote }}
+    keyvaultName: {{ .Values.global.keyVaultName | quote }}
+    tenantId: {{ .Values.global.tenantId | quote }}
+    objects: |
+      array:
+        - |
+          objectName: airflow-db-password
+          objectType: secret
+---
+# Re-runs on every sync of this Application (idempotent: creates what is
+# missing, re-syncs the Airflow password, never drops anything).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-bootstrap
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: db-bootstrap
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: db-bootstrap
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      nodeSelector:
+        workload-class: apps
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" (.Values.image.repository | required "image.repository is required") (.Values.image.digest | required "image.digest is required") | quote }}
+          env:
+            - { name: BOOTSTRAP_CONFIG, value: /config/bootstrap.yaml }
+            - { name: PGHOST, value: {{ .Values.global.postgres.host | required "global.postgres.host is required" | quote }} }
+            - { name: PGPORT, value: {{ .Values.global.postgres.port | default 5432 | quote }} }
+            # Entra admin role name = managed identity display name.
+            - { name: PGUSER, value: {{ $admin | quote }} }
+            - { name: PG_AUTH_MODE, value: entra }
+            - { name: PGSSLMODE, value: require }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - { name: config, mountPath: /config, readOnly: true }
+            - { name: secrets, mountPath: /mnt/secrets, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: db-bootstrap-config
+        - name: secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: db-bootstrap-kv
+        - name: tmp
+          emptyDir: {}

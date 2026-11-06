@@ -1,0 +1,17 @@
+# Root app-of-apps values for prod (argocd/applications, projects, applicationsets).
+environment: prod
+repoURL: git@github.com:REPLACE_ORG/aks-gitops-deployment.git
+targetRevision: main
+ingressMode: agic
+sync:
+  automated: false
+  prune: false
+  selfHeal: false
+syncWindows:
+  # Production changes only on weekdays 08:00-18:00 UTC; manual syncs allowed for emergencies.
+  - kind: allow
+    schedule: "0 8 * * 1-5"
+    duration: 10h
+    applications: ["*"]
+    manualSync: true
+services: [frontend, user-service, product-service, order-service, notification-service]

@@ -1,0 +1,105 @@
+name: terraform-plan
+
+# Speculative plans for every affected root on pull requests. Runs with the
+# read-only "<env>-plan" identity (Reader + state lock). The plan is posted to
+# the pull request; destructive changes are flagged and labelled. Binary plan
+# files are never uploaded from pull requests (they can contain secrets);
+# terraform-apply re-plans from main.
+on:
+  pull_request:
+    paths: ["modules/**", "environments/**"]
+
+permissions:
+  contents: read
+  id-token: write       # GitHub OIDC -> Entra workload identity federation
+  pull-requests: write  # plan comment and labels
+
+concurrency:
+  group: plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VERSION: "1.17.1"
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.roots.outputs.matrix }}
+      any: ${{ steps.roots.outputs.any }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: roots
+        run: ./scripts/changed-roots.sh "origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+
+  plan:
+    needs: changes
+    if: needs.changes.outputs.any == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    env:
+      ARM_CLIENT_ID: ${{ vars[format('AZURE_CLIENT_ID_PLAN_{0}', matrix.environment)] }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars[format('AZURE_SUBSCRIPTION_ID_{0}', matrix.environment)] }}
+      TF_VAR_subscription_id: ${{ vars[format('AZURE_SUBSCRIPTION_ID_{0}', matrix.environment)] }}
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.environment }}/${{ matrix.layer }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: init
+        run: terraform init -backend-config=backend.hcl -lockfile=readonly
+      - name: plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -lock-timeout=5m -out=tfplan -detailed-exitcode -no-color > plan.log 2>&1
+          code=$?
+          set -e
+          cat plan.log
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          terraform show -json tfplan > plan.json
+          terraform show -no-color tfplan > plan.txt
+      - name: analyse plan (destroy guard)
+        id: guard
+        run: |
+          ../../../scripts/tf-plan-guard.sh plan.json "${{ matrix.environment }}" report >> "$GITHUB_OUTPUT"
+      - name: comment plan on pull request
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          ROOT: ${{ matrix.environment }}/${{ matrix.layer }}
+          SUMMARY: ${{ steps.guard.outputs.summary }}
+          DESTROYS: ${{ steps.guard.outputs.destroys }}
+        with:
+          script: |
+            const fs = require('fs');
+            const dir = `environments/${process.env.ROOT}`;
+            let plan = fs.readFileSync(`${dir}/plan.txt`, 'utf8');
+            if (plan.length > 60000) plan = plan.slice(0, 60000) + '\n... (truncated, see job log)';
+            const marker = `<!-- tf-plan:${process.env.ROOT} -->`;
+            const warn = Number(process.env.DESTROYS) > 0
+              ? `\n> [!WARNING]\n> This plan **destroys ${process.env.DESTROYS} resource(s)**. Apply requires allow_destroy and environment approval.\n`
+              : '';
+            const body = `${marker}\n### Terraform plan: \`${process.env.ROOT}\`\n${process.env.SUMMARY}\n${warn}\n<details><summary>Show plan</summary>\n\n\`\`\`hcl\n${plan}\n\`\`\`\n</details>`;
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
+            if (Number(process.env.DESTROYS) > 0) {
+              await github.rest.issues.addLabels({ ...context.repo, issue_number: context.issue.number, labels: ['terraform-destroy'] });
+            }

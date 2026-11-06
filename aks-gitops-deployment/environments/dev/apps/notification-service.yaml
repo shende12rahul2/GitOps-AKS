@@ -1,0 +1,13 @@
+# notification-service in dev. image.* is written by aks-microservices-app/.github/workflows/update-gitops.yml
+# (pull request per release); everything else is reviewed configuration.
+image:
+  repository: acrakspocdeveus2a1b2.azurecr.io/notification-service
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  tag: sha-initial
+replicaCount: 1
+logLevel: DEBUG
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70

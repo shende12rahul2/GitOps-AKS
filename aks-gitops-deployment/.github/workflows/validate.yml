@@ -1,0 +1,87 @@
+name: validate
+
+# Every pull request to the GitOps repository is rendered exactly as Argo CD
+# would render it, for every environment, and validated before it can merge.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v3.22.1
+  KUBE_VERSION: 1.36.0
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, test, prod]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: tools
+        run: |
+          pip install pyyaml==6.0.3 yamllint==1.37.1
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin kubeconform
+      - name: yamllint (environment values)
+        run: yamllint -d '{extends: relaxed, rules: {line-length: {max: 220}}}' environments argocd/bootstrap platform/airflow
+      - name: helm lint (local charts)
+        run: |
+          for c in helm/*; do helm lint "$c" -f "$c/ci/test-values.yaml" --strict; done
+          for c in kubernetes/* platform/secrets platform/database platform/ingress platform/monitoring argocd/projects argocd/applications argocd/applicationsets; do
+            helm lint "$c" -f environments/${{ matrix.environment }}/infrastructure.yaml -f environments/${{ matrix.environment }}/argocd.yaml
+          done
+      - name: pull remote charts (pinned versions)
+        run: |
+          mkdir -p .chart-cache
+          v() { yq -r ".chartVersions.$1" argocd/applications/values.yaml; }
+          helm pull airflow --repo https://airflow.apache.org --version "$(v airflow)" --untar --untardir .chart-cache/tmp && mv .chart-cache/tmp/airflow ".chart-cache/airflow-$(v airflow)"
+          helm pull argo-cd --repo https://argoproj.github.io/argo-helm --version "$(v argocd)" --untar --untardir .chart-cache/tmp && mv .chart-cache/tmp/argo-cd ".chart-cache/argo-cd-$(v argocd)"
+          helm pull traefik --repo https://traefik.github.io/charts --version "$(v traefik)" --untar --untardir .chart-cache/tmp && mv .chart-cache/tmp/traefik ".chart-cache/traefik-$(v traefik)"
+          helm pull cert-manager --repo https://charts.jetstack.io --version "$(v certManager)" --untar --untardir .chart-cache/tmp && mv .chart-cache/tmp/cert-manager ".chart-cache/cert-manager-$(v certManager)"
+      - name: render environment (Argo CD semantics)
+        run: python3 scripts/render.py ${{ matrix.environment }} --out rendered --chart-cache .chart-cache --kube-version $KUBE_VERSION
+      - name: kubeconform
+        run: |
+          kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" -skip CustomResourceDefinition \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            rendered/*.yaml
+      - name: deployment guardrails
+        run: |
+          # Every application image is pinned by digest; no LoadBalancer services in apps.
+          ! grep -h -E '^\s+image: ' rendered/{frontend,user-service,product-service,order-service,notification-service}.yaml | grep -v '@sha256:'
+          ! grep -l 'type: LoadBalancer' rendered/{frontend,user-service,product-service,order-service,notification-service}.yaml
+          ! grep -r -h -i -E '(password|secret|token)\s*[:=]\s*["'"'"']?[A-Za-z0-9+/]{16,}' environments/${{ matrix.environment }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rendered-${{ matrix.environment }}
+          path: rendered/
+
+  policy-tests:
+    # Admission policies are exercised on a throwaway kind cluster.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: kind cluster
+        run: |
+          curl -sSLo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.30.0/kind-linux-amd64 && chmod +x /usr/local/bin/kind
+          kind create cluster --wait 120s
+      - name: install namespaces + admission policies
+        run: |
+          helm template ns kubernetes/namespaces -f environments/dev/infrastructure.yaml | kubectl apply -f -
+          helm template sp kubernetes/security-policies -f environments/dev/infrastructure.yaml \
+            --set policies.apps.action=Deny | kubectl apply -f -
+          sleep 5
+      - name: policy tests
+        run: tests/policies/run.sh "$(yq -r .global.acrLoginServer environments/dev/infrastructure.yaml)"

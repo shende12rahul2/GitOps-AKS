@@ -1,0 +1,102 @@
+# Local integration environment: PostgreSQL 17 + Redis 8 + the five services +
+# db-bootstrap + migrations, with a named volume standing in for Azure Files.
+#   docker compose up --build -d
+#   make integration
+name: aks-poc
+x-svc: &svc
+  restart: unless-stopped
+  environment: &env
+    ENVIRONMENT: local
+    LOG_LEVEL: INFO
+    DB_HOST: postgres
+    DB_AUTH_MODE: password
+    DB_SSLMODE: disable
+    INTERNAL_API_KEYS: local-dev-key
+    INTERNAL_API_KEYS_FILE: ""
+    REDIS_URL: redis://redis:6379/0
+    SHARED_STORAGE_ENABLED: "true"
+    HSTS_ENABLED: "false"
+    SECURE_COOKIES: "false"
+    USER_SERVICE_URL: http://user-service:8000
+    PRODUCT_SERVICE_URL: http://product-service:8000
+    ORDER_SERVICE_URL: http://order-service:8000
+    NOTIFICATION_SERVICE_URL: http://notification-service:8000
+  volumes:
+    - shared:/mnt/shared
+  read_only: true
+  tmpfs: [/tmp]
+  depends_on:
+    shared-init: { condition: service_completed_successfully }
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pgadmin
+      POSTGRES_PASSWORD: localadmin
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "pgadmin"]
+      interval: 2s
+      retries: 30
+    ports: ["5432:5432"]
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction", "--save", ""]
+    ports: ["6379:6379"]
+
+  shared-init:
+    image: busybox:1.37
+    command: ["sh", "-c", "mkdir -p /mnt/shared/common /mnt/shared/frontend /mnt/shared/user-service /mnt/shared/product-service /mnt/shared/order-service /mnt/shared/notification-service && chown -R 10001:10001 /mnt/shared"]
+    volumes: [shared:/mnt/shared]
+
+  db-bootstrap:
+    build: { context: ., dockerfile: tools/db-bootstrap/Dockerfile }
+    command: ["--config", "/config/bootstrap.yaml", "--auth", "password", "--admin-password-file", "/config/admin-password", "--host", "postgres", "--admin-user", "pgadmin", "--sslmode", "disable"]
+    volumes: [./tools/db-bootstrap/local:/config:ro]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  user-service-migrate: &migrate
+    build: { context: ., dockerfile: services/user-service/Dockerfile }
+    entrypoint: ["python", "-m", "svc_common.migrate", "--dir", "/app/migrations"]
+    environment: { <<: *env, SERVICE_NAME: user-service, DB_NAME: users_db, DB_USER: user-service, DB_PASSWORD: user-service }
+    depends_on: { db-bootstrap: { condition: service_completed_successfully } }
+  product-service-migrate:
+    <<: *migrate
+    build: { context: ., dockerfile: services/product-service/Dockerfile }
+    environment: { <<: *env, SERVICE_NAME: product-service, DB_NAME: products_db, DB_USER: product-service, DB_PASSWORD: product-service }
+  order-service-migrate:
+    <<: *migrate
+    build: { context: ., dockerfile: services/order-service/Dockerfile }
+    environment: { <<: *env, SERVICE_NAME: order-service, DB_NAME: orders_db, DB_USER: order-service, DB_PASSWORD: order-service }
+
+  user-service:
+    <<: *svc
+    build: { context: ., dockerfile: services/user-service/Dockerfile }
+    environment: { <<: *env, DB_NAME: users_db, DB_USER: user-service, DB_PASSWORD: user-service }
+    ports: ["8001:8000"]
+    depends_on: { user-service-migrate: { condition: service_completed_successfully } }
+  product-service:
+    <<: *svc
+    build: { context: ., dockerfile: services/product-service/Dockerfile }
+    environment: { <<: *env, DB_NAME: products_db, DB_USER: product-service, DB_PASSWORD: product-service }
+    ports: ["8002:8000"]
+    depends_on: { product-service-migrate: { condition: service_completed_successfully } }
+  order-service:
+    <<: *svc
+    build: { context: ., dockerfile: services/order-service/Dockerfile }
+    environment: { <<: *env, DB_NAME: orders_db, DB_USER: order-service, DB_PASSWORD: order-service }
+    ports: ["8003:8000"]
+    depends_on: { order-service-migrate: { condition: service_completed_successfully } }
+  notification-service:
+    <<: *svc
+    build: { context: ., dockerfile: services/notification-service/Dockerfile }
+    ports: ["8004:8000"]
+  frontend:
+    <<: *svc
+    build: { context: ., dockerfile: services/frontend/Dockerfile }
+    ports: ["8080:8000"]
+
+volumes:
+  shared: {}

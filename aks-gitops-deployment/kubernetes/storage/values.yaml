@@ -1,0 +1,33 @@
+global:
+  azureFiles:
+    storageAccount: ""
+    resourceGroup: ""
+    kubeletClientId: ""
+
+# Statically provisioned volumes for shares owned by Terraform (data layer).
+# storageClassName "" + volumeName binds each claim to exactly one PV, so no
+# StorageClass (and no dynamic provisioning) is involved.
+volumes:
+  shared-files:
+    namespace: apps
+    claimName: shared-files-pvc
+    share: shared-files
+    capacity: 10Gi
+    # Every app container runs as 10001:10001 (SMB has no per-file POSIX ownership;
+    # the mount owner and modes apply to the whole share).
+    uid: 10001
+    gid: 10001
+    dirMode: "0770"
+    fileMode: "0660"
+    # Directory layout (common/ + one directory per service) is created
+    # idempotently by every service at startup (svc_common.shared_storage).
+  airflow-logs:
+    namespace: airflow
+    claimName: airflow-logs-pvc
+    share: airflow-logs
+    capacity: 10Gi
+    uid: 50000   # official Airflow image user
+    gid: 0
+    dirMode: "0775"
+    fileMode: "0664"
+

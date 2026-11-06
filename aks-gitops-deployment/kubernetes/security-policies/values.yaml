@@ -1,0 +1,19 @@
+global:
+  acrLoginServer: ""
+
+# Native Kubernetes ValidatingAdmissionPolicies (GA since 1.30): no extra
+# controller to run. AKS Deployment Safeguards / Azure Policy add Microsoft's
+# baseline on top (Terraform).
+policies:
+  apps:
+    action: Deny          # Deny | Warn (dev can start with Warn)
+    requireDigest: true
+    extraRegistries: []
+  airflow:
+    action: Deny
+    requireDigest: false  # chart sidecars (git-sync, statsd) are pinned by tag in values
+    extraRegistries: [registry.k8s.io/git-sync/, quay.io/prometheus/statsd-exporter, mcr.microsoft.com/oss/kubernetes/pause]
+  platform-jobs:
+    action: Deny
+    requireDigest: true
+    extraRegistries: []

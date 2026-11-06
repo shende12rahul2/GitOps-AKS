@@ -1,0 +1,6 @@
+apiVersion: v2
+name: namespaces
+description: "Namespaces with Pod Security Standards labels, ResourceQuotas and LimitRanges"
+type: application
+version: 1.0.0
+kubeVersion: ">=1.30.0-0"

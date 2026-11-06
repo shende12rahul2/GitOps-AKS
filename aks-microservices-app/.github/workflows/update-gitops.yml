@@ -1,0 +1,150 @@
+name: update-gitops
+
+# Opens a pull request in aks-gitops-deployment that pins new image digests for
+# one environment. Argo CD deploys only after that PR is approved and merged.
+#   - dev:       called by build.yml after every merge to main.
+#   - test/prod: run manually to promote a digest already built and scanned in
+#                the lower environment. The image is copied by digest (bytes and
+#                digest unchanged) into the target registry inside the protected
+#                GitHub environment, then the PR is opened.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      images:
+        description: 'JSON: {"name": {"repository": "...", "digest": "sha256:...", "tag": "..."}}'
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [test, prod]
+        required: true
+      image:
+        type: choice
+        options: [frontend, user-service, product-service, order-service, notification-service, airflow, db-bootstrap]
+        required: true
+      digest:
+        description: "Digest to promote (sha256:...), as recorded in the lower environment's GitOps values"
+        required: true
+      source_environment:
+        type: choice
+        options: [dev, test]
+        default: dev
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }} # required reviewers + target-environment identity
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      images: ${{ steps.out.outputs.images }}
+    steps:
+      - name: validate digest
+        run: |
+          [[ "${{ inputs.digest }}" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "::error::invalid digest"; exit 1; }
+      - uses: azure/login@053f7285eb20bf5469ef084617b0b24d3cec53fc # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_ACR }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
+      - name: copy by digest (source AcrPull, target AcrPush)
+        env:
+          SRC: ${{ inputs.source_environment == 'dev' && vars.ACR_NAME_DEV || vars.ACR_NAME_TEST }}
+          DST: ${{ vars.ACR_NAME }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ inputs.digest }}
+        run: |
+          for r in "$SRC" "$DST"; do
+            az acr login --name "$r" --expose-token --output tsv --query accessToken \
+              | crane auth login "$r.azurecr.io" -u 00000000-0000-0000-0000-000000000000 --password-stdin
+          done
+          short="${DIGEST#sha256:}"; short="${short:0:12}"
+          # crane copies manifests and blobs verbatim, so the digest is identical in both registries.
+          crane copy "$SRC.azurecr.io/$IMAGE@$DIGEST" "$DST.azurecr.io/$IMAGE:promoted-$short"
+          test "$(crane digest "$DST.azurecr.io/$IMAGE:promoted-$short")" = "$DIGEST"
+      - id: out
+        run: |
+          jq -cn --arg n "${{ inputs.image }}" --arg r "${{ vars.ACR_NAME }}.azurecr.io/${{ inputs.image }}" --arg d "${{ inputs.digest }}" \
+            '{($n): {repository: $r, digest: $d, tag: ("promoted-" + ($d | .[7:19]))}}' | sed 's/^/images=/' >> "$GITHUB_OUTPUT"
+
+  pull-request:
+    needs: [promote]
+    if: always() && (needs.promote.result == 'success' || needs.promote.result == 'skipped')
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_ENV: ${{ inputs.environment }}
+      IMAGES: ${{ needs.promote.outputs.images || inputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app
+      # A GitHub App scoped to the GitOps repository (contents + pull-requests: write).
+      # Short-lived token; no personal access token.
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ vars.GITOPS_REPOSITORY || 'aks-gitops-deployment' }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/${{ vars.GITOPS_REPOSITORY || 'aks-gitops-deployment' }}
+          token: ${{ steps.app-token.outputs.token }}
+          path: gitops
+      - name: pin digests
+        id: pin
+        run: |
+          set -euo pipefail
+          summary=""
+          for name in $(jq -r 'keys[]' <<<"$IMAGES"); do
+            file=$(jq -r --arg n "$name" '.[$n].gitops_file' app/.github/images.json | sed "s/{env}/$TARGET_ENV/")
+            ypath=$(jq -r --arg n "$name" '.[$n].gitops_path' app/.github/images.json)
+            repo=$(jq -r --arg n "$name" '.[$n].repository' <<<"$IMAGES")
+            digest=$(jq -r --arg n "$name" '.[$n].digest' <<<"$IMAGES")
+            tag=$(jq -r --arg n "$name" '.[$n].tag' <<<"$IMAGES")
+            test -f "gitops/$file" || { echo "::error::missing gitops/$file"; exit 1; }
+            REPO="$repo" DIGEST="$digest" TAG="$tag" yq -i "${ypath}.repository = strenv(REPO) | ${ypath}.digest = strenv(DIGEST) | ${ypath}.tag = strenv(TAG)" "gitops/$file"
+            summary+="| \`$name\` | \`$digest\` | \`$tag\` |"$'\n'
+          done
+          { echo "table<<EOF"; echo "$summary"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          echo "title=deploy($TARGET_ENV): $(jq -r '[to_entries[] | "\(.key)@\(.value.tag)"] | join(", ")' <<<"$IMAGES")" >> "$GITHUB_OUTPUT"
+      - name: open pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          path: gitops
+          token: ${{ steps.app-token.outputs.token }}
+          branch: deploy/${{ env.TARGET_ENV }}/${{ github.run_id }}
+          commit-message: "deploy(${{ env.TARGET_ENV }}): pin image digests from ${{ github.repository }}@${{ github.sha }}"
+          title: ${{ steps.pin.outputs.title }}
+          labels: deploy,env/${{ env.TARGET_ENV }}
+          body: |
+            Automated image promotion for **${{ env.TARGET_ENV }}**.
+
+            | Image | Digest | Tag |
+            |---|---|---|
+            ${{ steps.pin.outputs.table }}
+
+            - Source commit: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - Images were scanned (Trivy) and carry SBOM/provenance attestations.
+
+            Merging this PR is the deployment approval: Argo CD syncs the change.
+            Rollback = revert this PR.
+      - name: auto-merge (dev only, if enabled)
+        if: env.TARGET_ENV == 'dev' && vars.GITOPS_AUTOMERGE_DEV == 'true' && steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh pr merge --repo "${{ github.repository_owner }}/${{ vars.GITOPS_REPOSITORY || 'aks-gitops-deployment' }}" --auto --squash "${{ steps.cpr.outputs.pull-request-number }}"

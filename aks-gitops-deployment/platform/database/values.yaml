@@ -1,0 +1,29 @@
+global:
+  tenantId: ""
+  keyVaultName: ""
+  workloadIdentities: {}
+  postgres:
+    host: ""
+    port: 5432
+  entraGroups: {}
+
+namespace: platform-jobs
+
+image:
+  repository: ""
+  digest: ""   # set by CI in environments/<env>/platform/db-bootstrap-image.yaml
+
+# Application databases and their owning roles (keys of global.workloadIdentities).
+databases:
+  - { name: users_db, owner: user-service }
+  - { name: products_db, owner: product-service }
+  - { name: orders_db, owner: order-service }
+  - { name: airflow_metadata, owner: airflow-db }
+
+# Entra groups (keys of global.entraGroups) granted <db>_readonly on app databases.
+# Empty in production.
+readerGroups: [qa, developers]
+
+airflowRole:
+  name: airflow
+  connectionLimit: 120

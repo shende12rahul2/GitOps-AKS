@@ -1,0 +1,55 @@
+# Application entry point: one hostname, path-based routing to ClusterIP services.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apps
+  namespace: {{ .Values.apps.namespace }}
+  annotations:
+    {{- include "ing.annotations" (list . (not .Values.global.ingress.publicApp) .Values.apps.healthProbePath .Values.apps.namespace) | nindent 4 }}
+spec:
+  ingressClassName: {{ include "ing.className" . }}
+  tls:
+    - hosts: [{{ .Values.global.ingress.hosts.app | quote }}]
+      secretName: app-tls
+  rules:
+    - host: {{ .Values.global.ingress.hosts.app | quote }}
+      http:
+        paths:
+          {{- range .Values.apps.routes }}
+          - path: {{ .path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .service }}
+                port:
+                  number: {{ $.Values.apps.port }}
+          {{- end }}
+{{- range $name, $a := .Values.admin }}
+{{- if $a.enabled }}
+---
+# Administration UI: private frontend only, separate hostname, SSO at the application.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  namespace: {{ $a.namespace }}
+  annotations:
+    {{- include "ing.annotations" (list $ true $a.healthProbePath $a.namespace) | nindent 4 }}
+spec:
+  ingressClassName: {{ include "ing.className" $ }}
+  tls:
+    - hosts: [{{ index $.Values.global.ingress.hosts $name | quote }}]
+      secretName: {{ $name }}-tls
+  rules:
+    - host: {{ index $.Values.global.ingress.hosts $name | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $a.service }}
+                port:
+                  number: {{ $a.port }}
+{{- end }}
+{{- end }}

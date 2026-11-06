@@ -1,0 +1,182 @@
+{{- $env := .Values.environment }}
+{{- $repo := .Values.repoURL }}
+{{- $rev := .Values.targetRevision }}
+{{- /* name, wave, project, namespace, path, extra environment value files */ -}}
+{{- $e := printf "../../environments/%s" $env }}
+{{- $local := list
+  (list "argocd-projects" "-20" "default" "argocd" "argocd/projects" (list (printf "%s/argocd.yaml" $e)))
+  (list "namespaces" "-15" "platform" "apps" "kubernetes/namespaces" (list))
+  (list "security-policies" "-14" "platform" "apps" "kubernetes/security-policies" (list (printf "%s/platform/security-policies.yaml" $e)))
+  (list "rbac" "-14" "platform" "apps" "kubernetes/rbac" (list (printf "%s/platform/rbac.yaml" $e)))
+  (list "network-policies" "-14" "platform" "apps" "kubernetes/network-policies" (list))
+  (list "storage" "-12" "platform" "apps" "kubernetes/storage" (list))
+  (list "platform-secrets" "-12" "platform" "airflow" "platform/secrets" (list))
+  (list "db-bootstrap" "-10" "platform" "platform-jobs" "platform/database" (list (printf "%s/platform/database.yaml" $e) (printf "%s/platform/db-bootstrap-image.yaml" $e)))
+  (list "platform-ingress" "-8" "platform" "apps" "platform/ingress" (list (printf "%s/platform/ingress.yaml" $e)))
+  (list "platform-monitoring" "-8" "platform" "kube-system" "platform/monitoring" (list))
+  (list "microservices" "0" "default" "argocd" "argocd/applicationsets" (list (printf "%s/argocd.yaml" $e)))
+}}
+{{- range $local }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ index . 0 }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ index . 1 | quote }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ index . 2 }}
+  source:
+    repoURL: {{ $repo }}
+    targetRevision: {{ $rev }}
+    path: {{ index . 4 }}
+    helm:
+      ignoreMissingValueFiles: true
+      valueFiles:
+        {{- include "apps.envValues" $ | nindent 8 }}
+        {{- range index . 5 }}
+        - {{ . }}
+        {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index . 3 }}
+  {{- include "apps.syncPolicy" $ | nindent 2 }}
+{{- end }}
+---
+# cert-manager (CRDs included). Wave before the ingress certificates.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: {{ .Values.helmRepos.certManager }}
+    chart: cert-manager
+    targetRevision: {{ .Values.chartVersions.certManager }}
+    helm:
+      valuesObject:
+        crds:
+          enabled: true
+          keep: true
+        global:
+          nodeSelector: { workload-class: apps }
+        resources:
+          requests: { cpu: 10m, memory: 64Mi }
+        webhook:
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+        cainjector:
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+        prometheus:
+          enabled: true
+        podLabels:
+          azure.workload.identity/use: "true"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    {{- if .Values.sync.automated }}
+    automated: { prune: false, selfHeal: true }
+    {{- end }}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+{{- if eq .Values.ingressMode "internal" }}
+---
+# Low-cost ingress mode: Traefik behind an internal load balancer.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: {{ .Values.helmRepos.traefik }}
+      chart: traefik
+      targetRevision: {{ .Values.chartVersions.traefik }}
+      helm:
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $values/platform/ingress/traefik-values.yaml
+          - $values/environments/{{ $env }}/platform/traefik.yaml
+    - repoURL: {{ $repo }}
+      targetRevision: {{ $rev }}
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ingress
+  {{- include "apps.syncPolicy" . | nindent 2 }}
+{{- end }}
+---
+# Apache Airflow from the official chart, values from this repository.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airflow
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: airflow
+  sources:
+    - repoURL: {{ .Values.helmRepos.airflow }}
+      chart: airflow
+      targetRevision: {{ .Values.chartVersions.airflow }}
+      helm:
+        releaseName: airflow
+        valueFiles:
+          - $values/platform/airflow/values.yaml
+          - $values/environments/{{ $env }}/infrastructure.yaml
+          - $values/environments/{{ $env }}/platform/airflow.yaml
+          - $values/environments/{{ $env }}/platform/airflow-image.yaml
+    - repoURL: {{ $repo }}
+      targetRevision: {{ $rev }}
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: airflow
+  {{- include "apps.syncPolicy" . | nindent 2 }}
+---
+# Argo CD manages its own configuration after bootstrap. Manual sync only:
+# a bad change here must never be auto-applied.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-25"
+spec:
+  project: platform
+  sources:
+    - repoURL: {{ .Values.helmRepos.argocd }}
+      chart: argo-cd
+      targetRevision: {{ .Values.chartVersions.argocd }}
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/argocd/bootstrap/values.yaml
+          - $values/environments/{{ $env }}/argocd-values.yaml
+    - repoURL: {{ $repo }}
+      targetRevision: {{ $rev }}
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    syncOptions: [ServerSideApply=true]

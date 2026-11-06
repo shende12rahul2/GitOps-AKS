@@ -1,0 +1,5 @@
+# Used only when ingressMode = internal (Terraform ingress_mode = internal).
+service:
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-ipv4: "10.10.3.232"

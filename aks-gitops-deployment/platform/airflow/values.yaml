@@ -1,0 +1,250 @@
+# Base values for the official Apache Airflow Helm chart 1.22.0 (Airflow 3.2.2),
+# deployed by Argo CD as release "airflow" in namespace "airflow".
+# Layered on top: environments/<env>/infrastructure.yaml (global contract),
+# environments/<env>/platform/airflow.yaml and airflow-image.yaml (CI-pinned image).
+
+airflowVersion: "3.2.2"
+
+# Custom image (aks-microservices-app/airflow/Dockerfile): official image +
+# pinned providers + plugins. DAG files come from Git-Sync, not the image.
+images:
+  airflow:
+    repository: ""   # environments/<env>/platform/airflow-image.yaml
+    tag: "3.2.2"
+    digest: ~
+    pullPolicy: IfNotPresent
+
+# CeleryExecutor with Azure Managed Redis (NoCluster, NoEviction, TLS 10000) as
+# broker and PostgreSQL Flexible Server for metadata and Celery results.
+executor: CeleryExecutor
+
+# Bundled PostgreSQL, Redis and PgBouncer are disabled: managed services only.
+postgresql:
+  enabled: false
+redis:
+  enabled: false
+pgbouncer:
+  enabled: false   # Burstable PostgreSQL has no built-in PgBouncer; pools are kept small instead
+
+# All credentials come from Key Vault through the Secrets Store CSI driver
+# (platform/secrets). Nothing secret is in this file or in Git.
+data:
+  metadataSecretName: airflow-metadata
+  brokerUrlSecretName: airflow-broker-url
+fernetKeySecretName: airflow-fernet-key
+apiSecretKeySecretName: airflow-api-secret-key
+jwtSecretName: airflow-jwt-secret
+webserverSecretKeySecretName: airflow-webserver-secret-key
+
+# Extra environment for every Airflow container.
+secret:
+  - envName: INTERNAL_API_KEY
+    secretName: airflow-internal-api
+    secretKey: INTERNAL_API_KEY
+  - envName: AIRFLOW_OAUTH_CLIENT_SECRET
+    secretName: airflow-oauth
+    secretKey: client-secret
+env:
+  # HTTP connections to the microservices (non-secret; auth header comes from INTERNAL_API_KEY).
+  - name: AIRFLOW_CONN_USER_SERVICE
+    value: '{"conn_type": "http", "host": "user-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}'
+  - name: AIRFLOW_CONN_PRODUCT_SERVICE
+    value: '{"conn_type": "http", "host": "product-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}'
+  - name: AIRFLOW_CONN_ORDER_SERVICE
+    value: '{"conn_type": "http", "host": "order-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}'
+  - name: AIRFLOW_CONN_NOTIFICATION_SERVICE
+    value: '{"conn_type": "http", "host": "notification-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}'
+  - name: AIRFLOW_CONN_FRONTEND
+    value: '{"conn_type": "http", "host": "frontend.apps.svc.cluster.local", "port": 8000, "schema": "http"}'
+
+config:
+  core:
+    load_examples: "False"
+    dags_are_paused_at_creation: "True"
+    parallelism: 16
+    max_active_tasks_per_dag: 8
+  database:
+    # Small pools per process keep the total under the Burstable B2s connection limit.
+    sql_alchemy_pool_size: 3
+    sql_alchemy_max_overflow: 5
+    sql_alchemy_pool_recycle: 1800
+    sql_alchemy_pool_pre_ping: "True"
+  celery:
+    worker_concurrency: 4
+    # TLS to Azure Managed Redis with server certificate verification
+    # (system CA bundle) and no client certificate.
+    ssl_active: "True"
+    ssl_mutual_tls: "False"
+  celery_broker_transport_options:
+    # All Celery/Kombu keys live under "airflow:", separate from the
+    # application cache namespace "app:<service>:" on the shared instance.
+    global_keyprefix: "airflow:"
+    # Longest task runtime before redelivery (6 h).
+    visibility_timeout: 21600
+  dag_processor:
+    refresh_interval: 60
+  logging:
+    remote_logging: "False"
+    colored_console_log: "False"
+  api:
+    expose_config: "False"
+  fab:
+    enable_proxy_fix: "True"
+
+# --- DAGs: Git-Sync from the application repository ---------------------------
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: true
+    # Read-only deploy key (Key Vault secret airflow-gitsync-ssh-key).
+    repo: git@github.com:REPLACE_ORG/aks-microservices-app.git
+    # git-sync v4 follows `ref` (branch, tag or commit). `branch` is git-sync v3 only.
+    ref: main
+    branch: main
+    rev: HEAD
+    depth: 1
+    subPath: airflow/dags
+    period: 60s
+    maxFailures: 3
+    sshKeySecret: airflow-gitsync-ssh
+    # github.com host keys (public, from https://api.github.com/meta).
+    knownHosts: |
+      github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+      github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+      github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { cpu: 200m, memory: 128Mi }
+
+# Task logs on the Terraform-owned Azure Files share (RWX) so the API server can
+# read logs of finished tasks from any worker; stdout also goes to Container Insights.
+logs:
+  persistence:
+    enabled: true
+    existingClaim: airflow-logs-pvc
+
+# --- Components (requests sized for the dev user pool, see docs/aks-sizing.md) ---
+apiServer:
+  replicas: 1
+  resources:
+    requests: { cpu: 250m, memory: 1Gi }
+    limits: { cpu: "1", memory: 2Gi }
+  # Microsoft Entra ID sign-in through Flask AppBuilder OAuth. App roles on the
+  # Airflow app registration (Admin/Op/User/Viewer) are assigned to the persona
+  # groups and arrive in the token's "roles" claim.
+  apiServerConfig: |
+    import os
+    from flask_appbuilder.security.manager import AUTH_OAUTH
+
+    TENANT_ID = "{{ .Values.global.tenantId }}"
+    CLIENT_ID = "{{ .Values.global.sso.airflowClientId }}"
+
+    AUTH_TYPE = AUTH_OAUTH
+    AUTH_USER_REGISTRATION = True
+    AUTH_USER_REGISTRATION_ROLE = "Public"
+    AUTH_ROLES_SYNC_AT_LOGIN = True
+    PERMANENT_SESSION_LIFETIME = 28800
+    AUTH_ROLES_MAPPING = {
+        "Airflow.Admin": ["Admin"],
+        "Airflow.Op": ["Op"],
+        "Airflow.User": ["User"],
+        "Airflow.Viewer": ["Viewer"],
+    }
+    OAUTH_PROVIDERS = [
+        {
+            "name": "azure",
+            "icon": "fa-windows",
+            "token_key": "access_token",
+            "remote_app": {
+                "client_id": CLIENT_ID,
+                "client_secret": os.environ["AIRFLOW_OAUTH_CLIENT_SECRET"],
+                "api_base_url": f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0",
+                "client_kwargs": {"scope": "openid email profile"},
+                "request_token_url": None,
+                "access_token_url": f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token",
+                "authorize_url": f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize",
+                "jwks_uri": f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys",
+            },
+        }
+    ]
+
+scheduler:
+  replicas: 1
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1536Mi }
+
+dagProcessor:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 200m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1536Mi }
+
+triggerer:
+  replicas: 1
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+
+workers:
+  replicas: 1
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 500m, memory: 1536Mi }
+    limits: { cpu: "2", memory: 3Gi }
+
+statsd:
+  enabled: true
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9102"
+
+# No default admin user: access is Entra ID SSO only.
+createUserJob:
+  enabled: false
+  useHelmHooks: false
+  applyCustomEnv: false
+
+# Argo CD: run the migration as a normal Job (Helm hooks would re-run it on every
+# sync and block the release); the chart's wait-for-migrations init containers
+# make the components start only after the schema is current.
+migrateDatabaseJob:
+  enabled: true
+  useHelmHooks: false
+  applyCustomEnv: false
+  jobAnnotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+
+# Restricted-compatible security context for every component.
+securityContexts:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 50000
+    runAsGroup: 0
+    fsGroup: 0
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+# Namespace-level NetworkPolicies are managed in kubernetes/network-policies.
+networkPolicies:
+  enabled: false
+
+ingress:
+  apiServer:
+    enabled: false   # central Ingress in platform/ingress (private admin hostname)
+
+nodeSelector:
+  workload-class: apps
+
+cleanup:
+  enabled: false

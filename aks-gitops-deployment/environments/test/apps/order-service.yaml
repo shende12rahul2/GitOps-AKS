@@ -1,0 +1,13 @@
+# order-service in test. image.* is written by aks-microservices-app/.github/workflows/update-gitops.yml
+# (pull request per release); everything else is reviewed configuration.
+image:
+  repository: acrakspoctesteus2c3d4.azurecr.io/order-service
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  tag: sha-initial
+replicaCount: 1
+logLevel: INFO
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70

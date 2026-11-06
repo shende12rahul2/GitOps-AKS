@@ -1,0 +1,51 @@
+global:
+  environment: local
+  ingress:
+    mode: agic
+
+# Pod Security Standards per namespace. apps/platform-jobs run fully
+# "restricted"; Airflow is enforced at "baseline" and audited/warned at
+# "restricted" because some chart components need more permissive defaults.
+namespaces:
+  # Quotas are guardrails against runaway workloads, sized from rendered requests
+  # (docs/aks-sizing.md) with room for HPA maximums and rolling-update surge:
+  # apps prod = 0.45 CPU / 1.1 GiB at minReplicas, ~1.0 CPU / 2.5 GiB at HPA max.
+  apps:
+    podSecurity: { enforce: restricted, audit: restricted, warn: restricted }
+    quota:
+      requests.cpu: "3"
+      requests.memory: 6Gi
+      limits.cpu: "12"
+      limits.memory: 16Gi
+      pods: "60"
+      persistentvolumeclaims: "5"
+      services.loadbalancers: "0"
+      services.nodeports: "0"
+  # airflow prod = 2.5 CPU / 8.2 GiB steady state (dev 1.4 CPU / 4.8 GiB) + surge.
+  airflow:
+    podSecurity: { enforce: baseline, audit: restricted, warn: restricted }
+    quota:
+      requests.cpu: "5"
+      requests.memory: 14Gi
+      limits.cpu: "16"
+      limits.memory: 32Gi
+      pods: "50"
+      services.loadbalancers: "0"
+      services.nodeports: "0"
+  platform-jobs:
+    podSecurity: { enforce: restricted, audit: restricted, warn: restricted }
+    quota:
+      requests.cpu: 500m
+      requests.memory: 512Mi
+      pods: "5"
+      services.loadbalancers: "0"
+  ingress:
+    onlyInMode: internal
+    podSecurity: { enforce: restricted, audit: restricted, warn: restricted }
+    quota: {}
+
+# Defaults for containers that do not declare resources.
+limitRange:
+  defaultRequest: { cpu: 25m, memory: 64Mi }
+  default: { cpu: 500m, memory: 512Mi }
+  max: { cpu: "2", memory: 4Gi }

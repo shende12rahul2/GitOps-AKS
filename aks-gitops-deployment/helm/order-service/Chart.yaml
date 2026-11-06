@@ -1,0 +1,10 @@
+apiVersion: v2
+name: order-service
+description: "Orders REST API (orders_db) orchestrating User, Product and Notification services"
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.30.0-0"
+keywords: [aks-poc, microservice]
+annotations:
+  category: application

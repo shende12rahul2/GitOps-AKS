@@ -1,0 +1,5 @@
+# Written by update-gitops.yml (image "db-bootstrap"). Rendered into platform/database values.
+image:
+  repository: acrakspocdeveus2a1b2.azurecr.io/db-bootstrap
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  tag: sha-initial
