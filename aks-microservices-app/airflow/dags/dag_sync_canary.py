@@ -8,7 +8,7 @@ from datetime import datetime
 
 from airflow.sdk import dag, task
 
-DAG_VERSION = "1.0.1"
+DAG_VERSION = "1.0.0"
 
 
 @dag(
