@@ -95,10 +95,11 @@ section "11. Airflow (optional)"
 if kubectl -n airflow get deploy airflow-scheduler >/dev/null 2>&1; then
   sch="kubectl -n airflow exec deploy/airflow-scheduler -c scheduler --"
   check "DAGs synced from GitHub (Git-Sync)" bash -c "$sch airflow dags list 2>/dev/null | grep -q order_processing_pipeline"
+  check "Git-Sync DAG sync test (files, registration, import errors)" "$(dirname "$0")/test-dag-sync.sh"
   $sch airflow dags unpause order_processing_pipeline >/dev/null 2>&1
-  run=$($sch airflow dags trigger order_processing_pipeline -o json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["dag_run_id"])' 2>/dev/null)
+  run=$($sch airflow dags trigger order_processing_pipeline -o json 2>/dev/null | grep -E '^\s*[[{]' | tail -1 | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["dag_run_id"])' 2>/dev/null)
   state=""
-  for i in $(seq 1 60); do sleep 10; state=$($sch airflow dags list-runs order_processing_pipeline -o json 2>/dev/null | python3 -c "import sys,json;print(next((r['state'] for r in json.load(sys.stdin) if r['run_id']=='$run'),''))" 2>/dev/null); [ "$state" = success ] || [ "$state" = failed ] && break; done
+  for i in $(seq 1 60); do sleep 10; state=$($sch airflow dags list-runs order_processing_pipeline -o json 2>/dev/null | grep -E '^\s*[[{]' | tail -1 | python3 -c "import sys,json;print(next((r['state'] for r in json.load(sys.stdin) if r['run_id']=='$run'),''))" 2>/dev/null); [ "$state" = success ] || [ "$state" = failed ] && break; done
   [ "$state" = success ] && ok "order_processing_pipeline run succeeded (CeleryExecutor + Redis)" || bad "DAG run state: ${state:-unknown}"
 else nope "Airflow not installed (WITH_AIRFLOW=1 local/up.sh)"; fi
 

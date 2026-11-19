@@ -63,12 +63,27 @@ Open:
 - Argo CD: http://argocd.localtest.me (user `admin`, password printed by `up.sh`)
 - Airflow: `kubectl -n airflow port-forward svc/airflow-api-server 8080:8080` -> http://localhost:8080
 
+Full guide (setup, every test, DAG sync from Git, verified results):
+[LOCAL-SETUP-AND-TESTING.md](../../LOCAL-SETUP-AND-TESTING.md).
+
+## Test DAG sync from Git (Git-Sync -> Airflow)
+
+```bash
+aks-gitops-deployment/local/test-dag-sync.sh            # DAGs synced + registered, no import errors
+BUMP=1 aks-gitops-deployment/local/test-dag-sync.sh     # also push a DAG change + revert, time both
+```
+
 ## Verified run
 
 `MODE=helm` was run end to end on k3s v1.34.1 (single node, images built with
 buildah): **30 passed, 0 failed** (sections 1-9 below). Argo CD (section 10) and
 Airflow (section 11) need images from quay.io / registry.k8s.io, which were not
 reachable from that build environment; run them on the laptop.
+
+Git-Sync -> Airflow 3.2.2 was verified with the same git-sync v4 and Airflow
+running as host processes: `BUMP=1 TARGET=host test-dag-sync.sh` gave **10 passed,
+0 failed** (pushed change visible in Airflow after 2 s, revert after 12 s; an
+earlier manual run: 6 s / 9 s, with a 10 s sync period).
 
 ## What `test.sh` checks
 

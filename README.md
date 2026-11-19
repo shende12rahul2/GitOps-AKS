@@ -39,6 +39,7 @@ independent repositories** (kept in this monorepo for review; split them with
 2. [Runbook](aks-infrastructure-iac/docs/runbook.md): Phases 1-11 from an empty subscription.
 3. [Validation report](aks-infrastructure-iac/docs/validation-report.md): what was executed while building this, and what still needs Azure.
 4. [RBAC matrix](aks-infrastructure-iac/docs/rbac-matrix.md), [security](aks-infrastructure-iac/docs/security.md), [cost](aks-infrastructure-iac/docs/cost-estimation.md), [sizing](aks-infrastructure-iac/docs/aks-sizing.md), [backup/DR](aks-infrastructure-iac/docs/backup-dr.md), [troubleshooting](aks-infrastructure-iac/docs/troubleshooting.md).
+5. [Local setup and testing](LOCAL-SETUP-AND-TESTING.md): run the apps, GitOps and Airflow (with DAG sync from Git) on k3s on a laptop, and test them.
 
 ## Before first use
 

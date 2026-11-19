@@ -9,7 +9,9 @@
 #      GITHUB_TOKEN (private repo, read-only PAT), IMPORT=auto|k3s|k3d|none,
 #      APP_DIR (path to aks-microservices-app when the repos are split),
 #      BUILDER=auto|docker|buildah (buildah = no Docker daemon needed),
-#      EXTRA_BUILD_ARGS (extra flags for the image build, e.g. a corporate proxy CA mount).
+#      EXTRA_BUILD_ARGS (extra flags for the image build, e.g. a corporate proxy CA mount),
+#      AIRFLOW_CHART (local chart directory instead of the apache-airflow Helm repo),
+#      AIRFLOW_EXTRA_VALUES (extra values file for Airflow, e.g. proxy settings for git-sync).
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"            # .../aks-gitops-deployment/local
@@ -145,8 +147,11 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "in
   app_prefix=""; [ -d "$root/aks-microservices-app" ] && app_prefix="aks-microservices-app/"
   app_repo="${APP_REPO_URL:-$REPO_URL}"
   values=$(mktemp); sed -e "s#__REPO_URL__#$app_repo#g" -e "s#__REVISION__#$REVISION#g" -e "s#__APP_PREFIX__#$app_prefix#g" "$here/values/airflow.yaml" > "$values"
-  helm repo add apache-airflow https://airflow.apache.org >/dev/null 2>&1 || true
-  helm upgrade --install airflow apache-airflow/airflow --version 1.22.0 -n airflow -f "$values" "${extra[@]}" \
+  chart=(apache-airflow/airflow --version 1.22.0)
+  if [ -n "${AIRFLOW_CHART:-}" ]; then chart=("$AIRFLOW_CHART")
+  else helm repo add apache-airflow https://airflow.apache.org >/dev/null 2>&1 || true; fi
+  [ -n "${AIRFLOW_EXTRA_VALUES:-}" ] && extra+=(-f "$AIRFLOW_EXTRA_VALUES")
+  helm upgrade --install airflow "${chart[@]}" -n airflow -f "$values" "${extra[@]}" \
     --set createUserJob.defaultUser.password="$(k -n airflow get secret airflow-local-admin -o jsonpath='{.data.password}' | base64 -d)" \
     --timeout 15m >/dev/null
   rm -f "$values"
