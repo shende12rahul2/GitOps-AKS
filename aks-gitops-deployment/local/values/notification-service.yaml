@@ -1,0 +1,3 @@
+# notification-service on local k3s (layered after values/global.yaml).
+image:
+  repository: aks-poc/notification-service

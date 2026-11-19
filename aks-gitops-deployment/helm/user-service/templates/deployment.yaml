@@ -89,9 +89,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            {{- if .Values.keyVault.enabled }}
+            {{- if or .Values.keyVault.enabled .Values.keyVault.fallbackSecret }}
             - name: secrets
               mountPath: {{ .Values.keyVault.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.database.passwordSecret.name }}
+            - name: db-password
+              mountPath: /mnt/db
               readOnly: true
             {{- end }}
             {{- if .Values.sharedStorage.enabled }}
@@ -110,7 +115,12 @@ spec:
             readOnly: true
             volumeAttributes:
               secretProviderClass: {{ include "svc.fullname" . }}-kv
+        {{- else if .Values.keyVault.fallbackSecret }}
+        - name: secrets
+          secret:
+            secretName: {{ .Values.keyVault.fallbackSecret }}
         {{- end }}
+        {{- if .Values.database.passwordSecret.name }}{{ include "svc.dbPasswordVolume" . | nindent 8 }}{{- end }}
         {{- if .Values.sharedStorage.enabled }}
         - name: shared
           persistentVolumeClaim:

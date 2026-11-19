@@ -1,0 +1,10 @@
+# user-service on local k3s (layered after values/global.yaml).
+image:
+  repository: aks-poc/user-service
+database:
+  user: user-service
+  authMode: password
+  sslmode: disable
+  passwordSecret:
+    name: db-passwords
+    key: user-service

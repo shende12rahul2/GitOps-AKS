@@ -1,0 +1,14 @@
+# order-service on local k3s (layered after values/global.yaml).
+image:
+  repository: aks-poc/order-service
+database:
+  user: order-service
+  authMode: password
+  sslmode: disable
+  passwordSecret:
+    name: db-passwords
+    key: order-service
+redis:
+  authMode: none
+  ssl: false
+  port: 6379

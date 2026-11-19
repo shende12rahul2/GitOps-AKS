@@ -1,0 +1,57 @@
+# Same db-bootstrap tool as AKS, in password mode (no Entra ID locally):
+# creates users_db/products_db/orders_db/airflow_metadata, one login role per
+# service (password from Secret data/db-passwords), read-only roles and grants.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-bootstrap-config
+  namespace: data
+data:
+  bootstrap.yaml: |
+    principals:
+      user-service:    { role: user-service, type: password, password_file: /mnt/pw/user-service }
+      product-service: { role: product-service, type: password, password_file: /mnt/pw/product-service }
+      order-service:   { role: order-service, type: password, password_file: /mnt/pw/order-service }
+      airflow:         { role: airflow, type: password, password_file: /mnt/pw/airflow, connection_limit: 60 }
+    databases:
+      - { name: users_db, owner: user-service }
+      - { name: products_db, owner: product-service }
+      - { name: orders_db, owner: order-service }
+      - { name: airflow_metadata, owner: airflow }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-bootstrap
+  namespace: data
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 10   # retries while PostgreSQL is still starting
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: bootstrap
+          image: aks-poc/db-bootstrap:local
+          imagePullPolicy: IfNotPresent
+          args: ["--config", "/config/bootstrap.yaml", "--auth", "password",
+                 "--admin-password-file", "/mnt/admin/password",
+                 "--host", "postgres.data.svc.cluster.local", "--admin-user", "postgres", "--sslmode", "disable"]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: admin, mountPath: /mnt/admin }
+            - { name: pw, mountPath: /mnt/pw }
+      volumes:
+        - name: config
+          configMap: { name: db-bootstrap-config }
+        - name: admin
+          secret: { secretName: pg-admin }
+        - name: pw
+          secret: { secretName: db-passwords }

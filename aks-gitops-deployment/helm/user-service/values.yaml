@@ -15,6 +15,8 @@ global:
   ingress:
     mode: agic
     gatewaySubnetCidr: 10.10.4.0/24
+    # Namespace of the in-cluster ingress controller (internal mode). k3s: kube-system.
+    controllerNamespace: ingress
 
 nameOverride: ""
 fullnameOverride: ""
@@ -68,6 +70,11 @@ database:
   # SQLAlchemy pool per replica. Burstable B2s allows ~429 connections in total.
   poolSize: 3
   maxOverflow: 2
+  # Local k3s only (authMode: password): Kubernetes Secret holding the password.
+  # AKS uses Entra tokens and leaves this empty.
+  passwordSecret:
+    name: ""
+    key: password
 
 migrations:
   enabled: true
@@ -77,10 +84,14 @@ redis:
   host: ""
   port: 10000
   authMode: entra
+  ssl: true
   keyPrefix: "app:user-service"
 
 keyVault:
   enabled: true
+  # Local k3s only: when enabled=false, this Kubernetes Secret (key
+  # internal-api-key) is mounted at mountPath instead of the Key Vault CSI volume.
+  fallbackSecret: ""
   name: ""
   mountPath: /mnt/secrets
   secrets:

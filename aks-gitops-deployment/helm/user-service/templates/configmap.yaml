@@ -22,12 +22,15 @@ data:
   DB_SSLMODE: {{ .Values.database.sslmode | quote }}
   DB_POOL_SIZE: {{ .Values.database.poolSize | quote }}
   DB_MAX_OVERFLOW: {{ .Values.database.maxOverflow | quote }}
+  {{- if .Values.database.passwordSecret.name }}
+  DB_PASSWORD_FILE: /mnt/db/password
+  {{- end }}
   {{- end }}
   REDIS_ENABLED: {{ .Values.redis.enabled | quote }}
   {{- if .Values.redis.enabled }}
   REDIS_HOST: {{ include "svc.redisHost" . | required "redis.host or global.redis.host is required" | quote }}
   REDIS_PORT: {{ .Values.redis.port | quote }}
-  REDIS_SSL: "true"
+  REDIS_SSL: {{ .Values.redis.ssl | quote }}
   REDIS_AUTH_MODE: {{ .Values.redis.authMode | quote }}
   REDIS_KEY_PREFIX: {{ .Values.redis.keyPrefix | default (printf "app:%s" (include "svc.name" .)) | quote }}
   {{- end }}

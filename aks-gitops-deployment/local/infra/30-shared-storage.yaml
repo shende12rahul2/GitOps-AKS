@@ -1,0 +1,15 @@
+# Replaces the Azure Files RWX share (local only).
+# k3s local-path volumes are ReadWriteOnce: every pod on the SAME node can mount
+# them, which is enough on a single-node laptop cluster. The cross-node test
+# needs AKS (Azure Files RWX) or an RWX provisioner such as Longhorn/NFS.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-files-pvc
+  namespace: apps
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

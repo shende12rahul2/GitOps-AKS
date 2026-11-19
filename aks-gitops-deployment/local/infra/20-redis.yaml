@@ -1,0 +1,38 @@
+# Replaces Azure Managed Redis (local only). Same policy as AKS: noeviction,
+# so Airflow's Celery queues are never evicted; app cache keys carry TTLs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      securityContext: { runAsUser: 999, runAsGroup: 999, runAsNonRoot: true }
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          args: ["--maxmemory", "128mb", "--maxmemory-policy", "noeviction", "--save", ""]
+          ports:
+            - { containerPort: 6379, name: redis }
+          readinessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: data
+spec:
+  selector: { app: redis }
+  ports:
+    - { port: 6379, targetPort: redis }

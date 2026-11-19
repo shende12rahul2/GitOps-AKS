@@ -1,0 +1,14 @@
+# product-service on local k3s (layered after values/global.yaml).
+image:
+  repository: aks-poc/product-service
+database:
+  user: product-service
+  authMode: password
+  sslmode: disable
+  passwordSecret:
+    name: db-passwords
+    key: product-service
+redis:
+  authMode: none
+  ssl: false
+  port: 6379

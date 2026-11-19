@@ -25,6 +25,7 @@ argocd/applicationsets/         microservices ApplicationSet
 environments/<env>/             infrastructure.yaml (generated contract), apps/*.yaml (digests), platform/*.yaml, argocd*.yaml
 scripts/                        render.py (Argo CD-faithful rendering), validate-shared-storage, smoke-test, test-rbac
 tests/policies/                 admission policy tests (kind)
+local/                          laptop test bed on k3s: same charts + Argo CD, local PostgreSQL/Redis (see local/README.md)
 ```
 
 ## Values layering

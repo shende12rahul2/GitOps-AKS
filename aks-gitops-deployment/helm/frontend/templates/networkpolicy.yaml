@@ -44,7 +44,7 @@ spec:
     {{- else }}
     - from:
         - namespaceSelector:
-            matchLabels: { kubernetes.io/metadata.name: ingress }
+            matchLabels: { kubernetes.io/metadata.name: {{ dig "ingress" "controllerNamespace" "ingress" (.Values.global | default dict) }} }
       ports:
         - { port: http, protocol: TCP }
     {{- end }}

@@ -1,0 +1,25 @@
+# Argo CD (argo-cd chart 10.14.0) for a laptop. Local only: the built-in admin
+# user is enabled (no Entra ID on k3s); AKS uses argocd/bootstrap/values.yaml.
+configs:
+  params:
+    server.insecure: true
+  cm:
+    admin.enabled: true
+    timeout.reconciliation: 60s
+dex:
+  enabled: false
+notifications:
+  enabled: false
+redis-ha:
+  enabled: false
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hostname: argocd.localtest.me
+controller:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+repoServer:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }

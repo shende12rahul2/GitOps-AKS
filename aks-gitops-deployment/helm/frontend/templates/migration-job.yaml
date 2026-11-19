@@ -46,9 +46,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.database.passwordSecret.name }}
+            - name: db-password
+              mountPath: /mnt/db
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.database.passwordSecret.name }}{{ include "svc.dbPasswordVolume" . | nindent 8 }}{{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

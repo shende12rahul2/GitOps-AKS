@@ -1,0 +1,70 @@
+# Optional: Airflow 3.2.2 (official chart 1.22.0) on k3s with the same executor
+# design as AKS (CeleryExecutor, Redis broker with noeviction and the airflow:
+# key prefix, PostgreSQL metadata created by db-bootstrap). Heavy for a laptop:
+# about 1.5 CPU / 4-5 GiB. Installed by `WITH_AIRFLOW=1 local/up.sh`.
+airflowVersion: "3.2.2"
+images:
+  airflow:
+    repository: aks-poc/airflow
+    tag: local
+    pullPolicy: IfNotPresent
+executor: CeleryExecutor
+postgresql: { enabled: false }
+redis: { enabled: false }
+pgbouncer: { enabled: false }
+data:
+  metadataSecretName: airflow-metadata     # created by up.sh
+  brokerUrlSecretName: airflow-broker-url  # created by up.sh
+secret:
+  - envName: INTERNAL_API_KEY
+    secretName: internal-api-key
+    secretKey: internal-api-key
+env:
+  - { name: AIRFLOW_CONN_USER_SERVICE, value: '{"conn_type": "http", "host": "user-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}' }
+  - { name: AIRFLOW_CONN_PRODUCT_SERVICE, value: '{"conn_type": "http", "host": "product-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}' }
+  - { name: AIRFLOW_CONN_ORDER_SERVICE, value: '{"conn_type": "http", "host": "order-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}' }
+  - { name: AIRFLOW_CONN_NOTIFICATION_SERVICE, value: '{"conn_type": "http", "host": "notification-service.apps.svc.cluster.local", "port": 8000, "schema": "http"}' }
+  - { name: AIRFLOW_CONN_FRONTEND, value: '{"conn_type": "http", "host": "frontend.apps.svc.cluster.local", "port": 8000, "schema": "http"}' }
+config:
+  core: { load_examples: "False" }
+  celery: { worker_concurrency: 2 }
+  celery_broker_transport_options:
+    global_keyprefix: "airflow:"
+    visibility_timeout: 21600
+  database:
+    sql_alchemy_pool_size: 2
+    sql_alchemy_max_overflow: 3
+dags:
+  gitSync:
+    enabled: true
+    # Git-Sync from GitHub over HTTPS (set by up.sh). Private repo: credentials
+    # Secret airflow-git-credentials (GITSYNC_USERNAME / GITSYNC_PASSWORD = token).
+    repo: __REPO_URL__
+    ref: __REVISION__
+    branch: __REVISION__
+    subPath: __APP_PREFIX__airflow/dags
+    period: 30s
+    depth: 1
+# Local login (no Entra ID on k3s): admin password from up.sh.
+createUserJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+migrateDatabaseJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+apiServer:
+  resources: { requests: { cpu: 100m, memory: 768Mi } }
+scheduler:
+  resources: { requests: { cpu: 100m, memory: 512Mi } }
+dagProcessor:
+  resources: { requests: { cpu: 100m, memory: 512Mi } }
+triggerer:
+  persistence: { enabled: false }
+  resources: { requests: { cpu: 50m, memory: 384Mi } }
+workers:
+  replicas: 1
+  persistence: { enabled: false }
+  resources: { requests: { cpu: 200m, memory: 1Gi } }
+logs:
+  persistence: { enabled: false }
+statsd: { enabled: false }

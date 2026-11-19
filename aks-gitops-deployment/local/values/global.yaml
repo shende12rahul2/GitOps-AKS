@@ -1,0 +1,36 @@
+# Local k3s replacement for environments/<env>/infrastructure.yaml.
+# No Azure: no workload identity, no Key Vault, password auth, Redis without TLS.
+global:
+  environment: local
+  postgres:
+    host: postgres.data.svc.cluster.local
+    port: 5432
+  redis:
+    host: redis.data.svc.cluster.local
+    port: 6379
+  ingress:
+    mode: internal
+    controllerNamespace: kube-system   # k3s ships Traefik in kube-system
+
+# Images are built on the laptop and imported into k3s (local/up.sh).
+image:
+  allowTagOnly: true
+  tag: local
+  digest: ""
+  pullPolicy: IfNotPresent
+
+workloadIdentity:
+  enabled: false
+
+# Internal API key from a plain Kubernetes Secret instead of Key Vault.
+keyVault:
+  enabled: false
+  fallbackSecret: internal-api-key
+
+hstsEnabled: false
+logLevel: INFO
+replicaCount: 1
+autoscaling:
+  enabled: false
+# No AKS node labels on a laptop.
+nodeSelector: {}

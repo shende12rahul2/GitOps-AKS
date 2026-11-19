@@ -63,3 +63,15 @@ environment: {{ .Values.global.environment | default "local" }}
 {{- define "svc.dbHost" -}}
 {{- default (dig "host" "" (.Values.global.postgres | default dict)) .Values.database.host -}}
 {{- end -}}
+
+{{/* Local k3s: database password from a Kubernetes Secret (AKS: none, Entra tokens). */}}
+{{- define "svc.dbPasswordVolume" -}}
+{{- if .Values.database.passwordSecret.name -}}
+- name: db-password
+  secret:
+    secretName: {{ .Values.database.passwordSecret.name }}
+    items:
+      - key: {{ .Values.database.passwordSecret.key }}
+        path: password
+{{- end -}}
+{{- end -}}
