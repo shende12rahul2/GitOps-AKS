@@ -30,7 +30,8 @@ local stand-ins; Terraform/Azure parts are not exercised here.
 - [k3s](https://docs.k3s.io/quick-start): `curl -sfL https://get.k3s.io | sh -` then
   `mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown $USER ~/.kube/config`
   (k3d or Rancher Desktop also work: `IMPORT=k3d` / `IMPORT=none`).
-- `docker`, `helm` 3, `kubectl`, `git`, `python3`, `curl`.
+- `docker` (or `buildah`, no daemon needed: `BUILDER=buildah`), `helm` 3, `kubectl`, `git`, `python3`, `curl`.
+- About 6 GB free disk for images (k3s keeps an uncompressed copy of each image).
 - The repository pushed to GitHub (Argo CD pulls from it). For a private repo,
   a fine-grained **read-only** token: `export GITHUB_TOKEN=...` (stays in the
   cluster as an Argo CD repository secret; never commit it).
@@ -61,6 +62,13 @@ Open:
 - APIs: http://app.localtest.me/api/users (products, orders, notifications)
 - Argo CD: http://argocd.localtest.me (user `admin`, password printed by `up.sh`)
 - Airflow: `kubectl -n airflow port-forward svc/airflow-api-server 8080:8080` -> http://localhost:8080
+
+## Verified run
+
+`MODE=helm` was run end to end on k3s v1.34.1 (single node, images built with
+buildah): **30 passed, 0 failed** (sections 1-9 below). Argo CD (section 10) and
+Airflow (section 11) need images from quay.io / registry.k8s.io, which were not
+reachable from that build environment; run them on the laptop.
 
 ## What `test.sh` checks
 
@@ -105,5 +113,6 @@ kubectl -n airflow exec deploy/airflow-scheduler -c scheduler -- airflow dags de
 | `ErrImageNeverPull` / `ImagePullBackOff` for `aks-poc/*` | images not imported: `sudo k3s crictl images \| grep aks-poc`; rerun `up.sh` or set `IMPORT` |
 | Argo CD `ComparisonError` / repo not accessible | branch pushed? private repo needs `GITHUB_TOKEN`; `kubectl -n argocd get applications` |
 | `*-migrate` job failing | `kubectl -n data logs job/db-bootstrap`; `kubectl -n apps logs job/<svc>-migrate` |
+| Pods `Pending` with `disk-pressure` taint | free disk space; k3s evicts pods and deletes images below its free-space threshold, so rerun `up.sh` afterwards |
 | `app.localtest.me` not reachable | Traefik running: `kubectl -n kube-system get svc traefik`; port 80 free on the laptop |
 | Airflow tasks stuck in queued | `kubectl -n airflow logs deploy/airflow-worker -c worker`; broker secret `airflow-broker-url` |

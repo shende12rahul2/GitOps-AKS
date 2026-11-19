@@ -32,5 +32,7 @@ logLevel: INFO
 replicaCount: 1
 autoscaling:
   enabled: false
-# No AKS node labels on a laptop.
-nodeSelector: {}
+# No AKS node labels on a laptop. Helm merges maps, so the chart default
+# (workload-class: apps) must be removed with null, not with {}.
+nodeSelector:
+  workload-class: null

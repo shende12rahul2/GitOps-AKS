@@ -7,7 +7,9 @@
 #
 # Env: REPO_URL (default: git origin), REVISION (default: current branch),
 #      GITHUB_TOKEN (private repo, read-only PAT), IMPORT=auto|k3s|k3d|none,
-#      APP_DIR (path to aks-microservices-app when the repos are split).
+#      APP_DIR (path to aks-microservices-app when the repos are split),
+#      BUILDER=auto|docker|buildah (buildah = no Docker daemon needed),
+#      EXTRA_BUILD_ARGS (extra flags for the image build, e.g. a corporate proxy CA mount).
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"            # .../aks-gitops-deployment/local
@@ -25,20 +27,29 @@ log() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 
 log "Preflight"
-for t in kubectl helm docker git; do command -v "$t" >/dev/null || { echo "missing: $t"; exit 1; }; done
+for t in kubectl helm git python3; do command -v "$t" >/dev/null || { echo "missing: $t"; exit 1; }; done
+BUILDER="${BUILDER:-auto}"
+if [ "$BUILDER" = auto ]; then
+  if command -v docker >/dev/null && docker info >/dev/null 2>&1; then BUILDER=docker
+  elif command -v buildah >/dev/null; then BUILDER=buildah
+  else echo "need docker (running) or buildah"; exit 1; fi
+fi
+SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO=sudo
 k get nodes -o wide
 [ -d "$APP_DIR/services" ] || { echo "APP_DIR not found: $APP_DIR"; exit 1; }
 echo "mode=$MODE airflow=$WITH_AIRFLOW repo=$REPO_URL revision=$REVISION prefix=${prefix:-<none>}"
 
-log "Build images (same Dockerfiles as CI)"
+log "Build images with $BUILDER (same Dockerfiles as CI)"
 images=()
-for s in "${SERVICES[@]}"; do
-  docker build -q -f "$APP_DIR/services/$s/Dockerfile" -t "aks-poc/$s:local" "$APP_DIR"; images+=("aks-poc/$s:local")
-done
-docker build -q -f "$APP_DIR/tools/db-bootstrap/Dockerfile" -t aks-poc/db-bootstrap:local "$APP_DIR"; images+=(aks-poc/db-bootstrap:local)
-if [ "$WITH_AIRFLOW" = 1 ]; then
-  docker build -q -f "$APP_DIR/airflow/Dockerfile" -t aks-poc/airflow:local "$APP_DIR"; images+=(aks-poc/airflow:local)
-fi
+build() { # dockerfile tag
+  # shellcheck disable=SC2086
+  if [ "$BUILDER" = docker ]; then docker build -q ${EXTRA_BUILD_ARGS:-} -f "$1" -t "$2" "$APP_DIR"
+  else buildah bud -q --layers ${EXTRA_BUILD_ARGS:-} -f "$1" -t "$2" "$APP_DIR" >/dev/null; fi
+  images+=("$2"); echo "built $2"
+}
+for s in "${SERVICES[@]}"; do build "$APP_DIR/services/$s/Dockerfile" "aks-poc/$s:local"; done
+build "$APP_DIR/tools/db-bootstrap/Dockerfile" aks-poc/db-bootstrap:local
+[ "$WITH_AIRFLOW" = 1 ] && build "$APP_DIR/airflow/Dockerfile" aks-poc/airflow:local
 
 log "Import images into the cluster runtime"
 if [ "$IMPORT" = auto ]; then
@@ -47,7 +58,14 @@ if [ "$IMPORT" = auto ]; then
   else IMPORT=none; fi
 fi
 case "$IMPORT" in
-  k3s) docker save "${images[@]}" | sudo k3s ctr images import - ;;
+  k3s)
+    if [ "$BUILDER" = docker ]; then docker save "${images[@]}" | $SUDO k3s ctr images import -
+    else
+      for i in "${images[@]}"; do
+        tar=$(mktemp -u).tar; buildah push -q "$i" "oci-archive:$tar:docker.io/$i" >/dev/null
+        $SUDO k3s ctr images import "$tar" >/dev/null && echo "imported $i"; rm -f "$tar"
+      done
+    fi ;;
   k3d) k3d image import -c "${K3D_CLUSTER:-$(k3d cluster list -o json | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["name"])')}" "${images[@]}" ;;
   none) echo "skipping import (runtime shares Docker's image store, e.g. Rancher Desktop with dockerd)" ;;
 esac
@@ -78,7 +96,7 @@ deploy_helm() {
   k -n data rollout status deploy/postgres --timeout=180s
   k -n data rollout status deploy/redis --timeout=120s
   k -n data wait --for=condition=complete job/db-bootstrap --timeout=300s
-  k -n data logs job/db-bootstrap | tail -1
+  k -n data logs job/db-bootstrap 2>/dev/null | tail -1 || true
   log "Helm install the five charts"
   for s in "${SERVICES[@]}"; do
     k -n apps delete job "$s-migrate" --ignore-not-found >/dev/null
